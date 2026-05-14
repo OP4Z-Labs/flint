@@ -1,13 +1,19 @@
-// Thin wrapper over the Cloudflare REST API. Only covers the endpoints
-// Flint v0.1 needs:
+// Thin wrapper over the Cloudflare REST API. Covers the endpoints Flint
+// needs through v0.2:
 //
-//   - GET /user/tokens/verify      → token validity + status
-//   - GET /accounts                → enumerate accessible accounts
-//   - Scope probes (used by auth doctor)
+//   v0.1:
+//     - GET /user/tokens/verify      → token validity + status
+//     - GET /accounts                → enumerate accessible accounts
+//     - Scope probes (used by auth doctor)
 //
-// We intentionally avoid wrapping the entire CF SDK — v0.1 needs four
-// endpoints. When v0.2 adds resource provisioning, swap in their official
-// SDK if it makes sense; for now, native fetch keeps the dep tree small.
+//   v0.2 (resource provisioning idempotency):
+//     - GET /accounts/{id}/pages/projects               → list Pages projects
+//     - GET /accounts/{id}/storage/kv/namespaces        → list KV namespaces
+//     - GET /accounts/{id}/r2/buckets                   → list R2 buckets
+//
+// We intentionally avoid wrapping the entire CF SDK — native fetch keeps
+// the dep tree small. Resource *creation* still goes through wrangler so
+// the user's wrangler version is the source of truth for command shapes.
 
 import type { ScopeProbeId } from './permissions.js';
 
@@ -122,6 +128,94 @@ export async function probeScope(
     case 'zone.read':
       return probeGeneric(token, '/zones?per_page=1', 'GET');
   }
+}
+
+// ─── Resource listing (for idempotency in `flint configure`) ──────────────
+//
+// Each list endpoint returns a paginated CF envelope. v0.2 uses these only
+// to answer "does a resource with name X already exist?" so we fetch a
+// single page sized to 50 — solo dev accounts virtually always have fewer
+// resources than that. If pagination ever matters, the loop pattern is
+// straightforward to add.
+
+export interface PagesProjectSummary {
+  /** Project name (== `wrangler.toml` `name`). */
+  name: string;
+  /** Production branch — useful for confirming the user's expectation. */
+  production_branch: string;
+  /** Live subdomain, e.g. `myapp.pages.dev`. */
+  subdomain?: string;
+}
+
+export interface KvNamespaceSummary {
+  /** Cloudflare-internal namespace id (32-char hex). */
+  id: string;
+  /** Human-readable title chosen at create time. */
+  title: string;
+}
+
+export interface R2BucketSummary {
+  /** Globally unique bucket name. */
+  name: string;
+  /** ISO 8601 string (CF returns "2026-01-01T00:00:00.000Z"). */
+  creation_date?: string;
+}
+
+export async function listPagesProjects(
+  token: string,
+  accountId: string,
+): Promise<PagesProjectSummary[]> {
+  type Project = {
+    name: string;
+    production_branch?: string;
+    subdomain?: string;
+  };
+  const body = await cfGet<Project[]>(
+    token,
+    `/accounts/${accountId}/pages/projects?per_page=50`,
+  );
+  if (!body.success) {
+    const reason = body.errors?.[0]?.message ?? 'unknown';
+    throw new Error(`Listing Pages projects failed: ${reason}`);
+  }
+  return (body.result ?? []).map((p) => ({
+    name: p.name,
+    production_branch: p.production_branch ?? 'main',
+    subdomain: p.subdomain,
+  }));
+}
+
+export async function listKvNamespaces(
+  token: string,
+  accountId: string,
+): Promise<KvNamespaceSummary[]> {
+  type Ns = { id: string; title: string };
+  const body = await cfGet<Ns[]>(
+    token,
+    `/accounts/${accountId}/storage/kv/namespaces?per_page=50`,
+  );
+  if (!body.success) {
+    const reason = body.errors?.[0]?.message ?? 'unknown';
+    throw new Error(`Listing KV namespaces failed: ${reason}`);
+  }
+  return (body.result ?? []).map((n) => ({ id: n.id, title: n.title }));
+}
+
+export async function listR2Buckets(
+  token: string,
+  accountId: string,
+): Promise<R2BucketSummary[]> {
+  // CF returns R2 buckets in a slightly different envelope: `result.buckets`.
+  type R2Result = { buckets?: Array<{ name: string; creation_date?: string }> };
+  const body = await cfGet<R2Result>(token, `/accounts/${accountId}/r2/buckets`);
+  if (!body.success) {
+    const reason = body.errors?.[0]?.message ?? 'unknown';
+    throw new Error(`Listing R2 buckets failed: ${reason}`);
+  }
+  return (body.result?.buckets ?? []).map((b) => ({
+    name: b.name,
+    creation_date: b.creation_date,
+  }));
 }
 
 async function probeGeneric(
