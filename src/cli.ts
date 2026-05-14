@@ -1,15 +1,19 @@
 #!/usr/bin/env node
-// Flint CLI entrypoint. Dispatches to the four v0.1 command surfaces:
-//   - flint auth init / status / doctor / rotate
-//   - flint init --variant <pages-functions|pages-fullstack>
+// Flint CLI entrypoint. Dispatches to the v0.1 + v0.2 command surfaces:
+//   - flint auth init / status / doctor / rotate                       (v0.1)
+//   - flint init --variant <pages-functions|pages-fullstack>           (v0.1)
+//   - flint configure [--dry-run]                                      (v0.2)
+//   - flint add kv|r2|secret <name>                                    (v0.2)
 //
-// v0.2+ surfaces (create-app, configure, add, deploy, upgrade) are reserved
-// in the plan but not implemented here. Adding them in later milestones is
-// a matter of registering a new sub-command — the dispatch layer is open.
+// v0.5+ surfaces (create-app, deploy, upgrade) are reserved in the plan
+// but not implemented here. Adding them in later milestones is a matter of
+// registering a new sub-command — the dispatch layer is open.
 
 import { Command } from 'commander';
 import { authInit, authStatus, authDoctor, authRotate } from './commands/auth.js';
 import { runInit } from './commands/init.js';
+import { runConfigure } from './commands/configure.js';
+import { runAddKv, runAddR2, runAddSecret } from './commands/add.js';
 import { readPackageVersion } from './util/version.js';
 
 const program = new Command();
@@ -82,6 +86,108 @@ program
         includeCI: opts.ci,
         yes: opts.yes,
         force: opts.force,
+      });
+    },
+  );
+
+// ─── configure (v0.2) ──────────────────────────────────────────────────────
+program
+  .command('configure')
+  .description('walk through provisioning every Cloudflare resource declared in wrangler.toml')
+  .option('--dry-run', 'print the planned commands and diff without invoking wrangler')
+  .option('--no-pages-project', 'skip the Pages project step')
+  .option('--no-kv', 'skip the KV namespace step')
+  .option('--no-r2', 'skip the R2 bucket step')
+  .option('--no-secrets', 'skip the secrets step')
+  .option('--secrets <names>', 'comma-separated list of secret names to set non-interactively')
+  .action(
+    async (opts: {
+      dryRun?: boolean;
+      pagesProject: boolean;
+      kv: boolean;
+      r2: boolean;
+      secrets: boolean | string;
+    }) => {
+      const secretNames =
+        typeof opts.secrets === 'string'
+          ? opts.secrets.split(',').map((s) => s.trim()).filter((s) => s.length > 0)
+          : [];
+      await runConfigure({
+        dryRun: opts.dryRun === true,
+        skipPagesProject: opts.pagesProject === false,
+        skipKv: opts.kv === false,
+        skipR2: opts.r2 === false,
+        skipSecrets: opts.secrets === false,
+        secrets: secretNames,
+      });
+    },
+  );
+
+// ─── add (v0.2) ────────────────────────────────────────────────────────────
+const add = program
+  .command('add')
+  .description('additive scaffolds: kv | r2 | secret');
+
+add
+  .command('kv <binding>')
+  .description('declare a new [[kv_namespaces]] block and (optionally) provision it')
+  .option('--no-provision', 'do not prompt to run `flint configure` after adding')
+  .option('--force', 'append a duplicate block even if the binding already exists')
+  .option('-y, --yes', 'accept defaults; never prompt')
+  .action(
+    async (binding: string, opts: { provision: boolean; force?: boolean; yes?: boolean }) => {
+      await runAddKv({
+        binding,
+        noProvision: opts.provision === false,
+        force: opts.force === true,
+        yes: opts.yes === true,
+      });
+    },
+  );
+
+add
+  .command('r2 <binding>')
+  .description('declare a new [[r2_buckets]] block and (optionally) provision it')
+  .option('--no-provision', 'do not prompt to run `flint configure` after adding')
+  .option('--force', 'append a duplicate block even if the binding already exists')
+  .option('-y, --yes', 'accept defaults; never prompt')
+  .action(
+    async (binding: string, opts: { provision: boolean; force?: boolean; yes?: boolean }) => {
+      await runAddR2({
+        binding,
+        noProvision: opts.provision === false,
+        force: opts.force === true,
+        yes: opts.yes === true,
+      });
+    },
+  );
+
+add
+  .command('secret <name>')
+  .description('document a new secret in .dev.vars.example and (optionally) push it to Pages')
+  .option('--description <text>', 'inline description for .dev.vars.example')
+  .option('--no-provision', 'only update .dev.vars.example; do not call wrangler')
+  .option(
+    '--write-to-dev-vars',
+    'ALSO write the secret value to local .dev.vars (off by default — opt-in)',
+  )
+  .option('-y, --yes', 'accept defaults; never prompt')
+  .action(
+    async (
+      name: string,
+      opts: {
+        description?: string;
+        provision: boolean;
+        writeToDevVars?: boolean;
+        yes?: boolean;
+      },
+    ) => {
+      await runAddSecret({
+        name,
+        description: opts.description,
+        noProvision: opts.provision === false,
+        writeToDevVars: opts.writeToDevVars === true,
+        yes: opts.yes === true,
       });
     },
   );
