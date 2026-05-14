@@ -1,0 +1,6 @@
+{
+  "version": 1,
+  "description": "Scope Pages Functions to /api/* only. All other paths bypass Functions and hit the static asset / SPA fallback directly — saves Function invocations on every page load.",
+  "include": ["/api/*"],
+  "exclude": []
+}
