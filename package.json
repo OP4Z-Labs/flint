@@ -1,5 +1,5 @@
 {
-  "name": "flint",
+  "name": "@op4z/flint",
   "version": "0.1.0",
   "description": "Flint — the Cloudflare Pages bootstrap CLI. Sparks the spark for Vite + React + TS apps on Cloudflare Pages.",
   "type": "module",
@@ -47,10 +47,10 @@
     "@types/node": "^22.10.0",
     "@typescript-eslint/eslint-plugin": "^8.18.0",
     "@typescript-eslint/parser": "^8.18.0",
-    "@vitest/coverage-v8": "^2.1.8",
+    "@vitest/coverage-v8": "^4.1.6",
     "eslint": "^9.17.0",
-    "typescript": "~5.7.0",
+    "typescript": "^6.0.3",
     "typescript-eslint": "^8.18.0",
-    "vitest": "^2.1.8"
+    "vitest": "^4.1.6"
   }
 }

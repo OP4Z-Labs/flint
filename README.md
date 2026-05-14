@@ -27,8 +27,11 @@ npm link      # exposes `flint` globally
 After linking, the `flint` binary is on your `$PATH`. To uninstall, run
 `npm unlink -g flint` from the repo root.
 
-> **Naming:** if `flint` is taken on npm by the time we publish, the
-> fallback list is `ember`, `forge`, `embark` — in that order.
+> **Publishing:** the npm package name is `@op4z/flint` (scope avoids
+> the bare-`flint` collision risk). The binary stays `flint` — users
+> still invoke `npx @op4z/flint init` or `flint <command>` after install.
+> Fallback names if the `@op4z` scope ever needs revisiting: `ember`,
+> `forge`, `embark`.
 
 ---
 
