@@ -1,0 +1,103 @@
+#!/usr/bin/env node
+// Flint CLI entrypoint. Dispatches to the four v0.1 command surfaces:
+//   - flint auth init / status / doctor / rotate
+//   - flint init --variant <pages-functions|pages-fullstack>
+//
+// v0.2+ surfaces (create-app, configure, add, deploy, upgrade) are reserved
+// in the plan but not implemented here. Adding them in later milestones is
+// a matter of registering a new sub-command — the dispatch layer is open.
+
+import { Command } from 'commander';
+import { authInit, authStatus, authDoctor, authRotate } from './commands/auth.js';
+import { runInit } from './commands/init.js';
+import { readPackageVersion } from './util/version.js';
+
+const program = new Command();
+
+program
+  .name('flint')
+  .description('Flint — Cloudflare Pages bootstrap CLI (Vite + React + TypeScript + Wrangler v4)')
+  .version(readPackageVersion(), '-v, --version', 'print the Flint version');
+
+// ─── auth ──────────────────────────────────────────────────────────────────
+const auth = program
+  .command('auth')
+  .description('manage the persistent Cloudflare API token used by Wrangler');
+
+auth
+  .command('init')
+  .description('walk through Cloudflare API token creation, validate, and store')
+  .option('--no-browser', 'do not attempt to open the dashboard in a browser')
+  .option('--no-clipboard', 'do not copy the scope list to the clipboard')
+  .action(async (opts: { browser: boolean; clipboard: boolean }) => {
+    await authInit({ openBrowser: opts.browser, useClipboard: opts.clipboard });
+  });
+
+auth
+  .command('status')
+  .description("show the currently stored token's account, validity, and scopes")
+  .action(async () => {
+    await authStatus();
+  });
+
+auth
+  .command('doctor')
+  .description('validate that the stored token carries every required Cloudflare scope')
+  .action(async () => {
+    await authDoctor();
+  });
+
+auth
+  .command('rotate')
+  .description('walk through replacing the stored token (manual revoke reminder)')
+  .option('--no-browser', 'do not attempt to open the dashboard in a browser')
+  .option('--no-clipboard', 'do not copy the scope list to the clipboard')
+  .action(async (opts: { browser: boolean; clipboard: boolean }) => {
+    await authRotate({ openBrowser: opts.browser, useClipboard: opts.clipboard });
+  });
+
+// ─── init ──────────────────────────────────────────────────────────────────
+program
+  .command('init')
+  .description('scaffold Cloudflare Pages config into an existing Vite + React + TS repo')
+  .option(
+    '--variant <variant>',
+    'template variant: pages-functions | pages-fullstack',
+  )
+  .option('--name <name>', 'Cloudflare Pages project name (default: directory name)')
+  .option('--no-ci', 'skip writing .github/workflows/ci.yml')
+  .option('-y, --yes', 'accept defaults and skip interactive prompts where possible')
+  .option('--force', 'overwrite existing files (default: prompt per-file)')
+  .action(
+    async (opts: {
+      variant?: string;
+      name?: string;
+      ci: boolean;
+      yes: boolean;
+      force: boolean;
+    }) => {
+      await runInit({
+        variant: opts.variant,
+        projectName: opts.name,
+        includeCI: opts.ci,
+        yes: opts.yes,
+        force: opts.force,
+      });
+    },
+  );
+
+// All errors should bubble up as a non-zero exit. Inquirer's ExitPromptError
+// (raised on Ctrl-C) gets soft-handled so the terminal isn't left with a
+// stack trace for a user-initiated cancel.
+program.parseAsync(process.argv).catch((err: unknown) => {
+  if (err && typeof err === 'object' && 'name' in err && err.name === 'ExitPromptError') {
+    console.error('\nCancelled.');
+    process.exit(130);
+  }
+  if (err instanceof Error) {
+    console.error(`\nflint: ${err.message}`);
+  } else {
+    console.error('\nflint: unknown error', err);
+  }
+  process.exit(1);
+});
