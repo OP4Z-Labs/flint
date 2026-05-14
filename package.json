@@ -1,0 +1,56 @@
+{
+  "name": "flint",
+  "version": "0.1.0",
+  "description": "Flint — the Cloudflare Pages bootstrap CLI. Sparks the spark for Vite + React + TS apps on Cloudflare Pages.",
+  "type": "module",
+  "license": "MIT",
+  "private": true,
+  "bin": {
+    "flint": "./dist/cli.js"
+  },
+  "main": "./dist/cli.js",
+  "files": [
+    "dist",
+    "templates",
+    "README.md"
+  ],
+  "engines": {
+    "node": ">=20.0.0"
+  },
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "dev": "tsc -p tsconfig.json --watch",
+    "lint": "eslint .",
+    "lint:fix": "eslint . --fix",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "test:coverage": "vitest run --coverage",
+    "typecheck": "tsc -b",
+    "prepare": "npm run build"
+  },
+  "keywords": [
+    "cloudflare",
+    "pages",
+    "wrangler",
+    "vite",
+    "react",
+    "typescript",
+    "cli",
+    "bootstrap",
+    "scaffold"
+  ],
+  "dependencies": {
+    "@inquirer/prompts": "^7.2.0",
+    "commander": "^12.1.0"
+  },
+  "devDependencies": {
+    "@types/node": "^22.10.0",
+    "@typescript-eslint/eslint-plugin": "^8.18.0",
+    "@typescript-eslint/parser": "^8.18.0",
+    "@vitest/coverage-v8": "^2.1.8",
+    "eslint": "^9.17.0",
+    "typescript": "~5.7.0",
+    "typescript-eslint": "^8.18.0",
+    "vitest": "^2.1.8"
+  }
+}

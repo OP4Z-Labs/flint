@@ -1,0 +1,15 @@
+node_modules/
+dist/
+coverage/
+*.log
+.DS_Store
+*.tsbuildinfo
+
+# Local credentials cache — never commit. Flint writes its own credentials
+# to ~/.config/flint/, but if anyone runs the CLI from this repo, the
+# tests redirect HOME and write here. Keep it gitignored as a belt-and-
+# braces measure.
+.flint-test-home/
+.dev.vars
+.env
+.env.local
