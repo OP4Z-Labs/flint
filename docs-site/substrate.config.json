@@ -1,5 +1,5 @@
 {
-  "$schema": "https://cadence.dev/schema.json",
+  "$schema": "https://substrate.dev/schema.json",
   "version": "1.0.0",
   "project": {
     "name": "flint-docs-site",

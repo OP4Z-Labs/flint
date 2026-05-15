@@ -14,7 +14,7 @@ introduced by the current branch.
 
 ## When to run
 
-- Before opening a pull request: `cadence audit --type pre-merge`
+- Before opening a pull request: `substrate audit --type pre-merge`
 - As a pre-push git hook (see `Integration` below)
 - As a required CI check on PR open / update
 
@@ -109,7 +109,7 @@ Resolve HIGH findings or ack with: --ack-high
 ## Block 8: Followups
 
 - Resolve the introduced findings shown above.
-- Re-run `cadence audit --type pre-merge`.
+- Re-run `substrate audit --type pre-merge`.
 - Once the gate passes, open the PR.
 
 ## Integration
@@ -124,7 +124,7 @@ chmod +x .git/hooks/pre-push
 Where the hook simply invokes:
 
 ```bash
-cadence audit --type pre-merge --json | jq -e '.gate != "fail"'
+substrate audit --type pre-merge --json | jq -e '.gate != "fail"'
 ```
 
 ## Rules

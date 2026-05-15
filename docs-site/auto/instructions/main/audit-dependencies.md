@@ -138,7 +138,7 @@ License issues: N
 
 Next:
   1. Open a task to upgrade <package> to fix <CVE>.
-  2. Schedule monthly: cadence audit --type dependencies.
+  2. Schedule monthly: substrate audit --type dependencies.
   3. Pin shared majors across services (see Version Skew section).
 ```
 

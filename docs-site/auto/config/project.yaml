@@ -1,8 +1,8 @@
 # Project identity and stack metadata.
 #
-# This file is the YAML companion to cadence.config.json. Tooling that
-# prefers YAML (CI configs, ops runbooks) reads from here; the cadence
-# CLI itself reads cadence.config.json. Keep them in sync.
+# This file is the YAML companion to substrate.config.json. Tooling that
+# prefers YAML (CI configs, ops runbooks) reads from here; the substrate
+# CLI itself reads substrate.config.json. Keep them in sync.
 
 project:
   name: "flint-docs-site"

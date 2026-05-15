@@ -240,14 +240,14 @@ should not publish.
 Plan per app (Blaze, Chorus, Portfolio):
 
 1. Copy source repo to a sibling working dir
-   (e.g. `/home/beaug/dev/_flint-test/blaze-rescaffold/`).
+   (e.g. `~/dev/_flint-test/blaze-rescaffold/`).
 2. Run `flint upgrade --check` against the copy to detect drift.
 3. Run `flint upgrade --diff` to review.
 4. Run `flint upgrade --apply` interactively.
 5. Verify build + tests + typecheck in the copy.
 6. Document findings + drift in `docs/rescaffold-report-<app>.md`.
 
-**HARD INVARIANT: do not touch `/home/beaug/dev/{blaze,chorus,portfolio}` directly.**
+**HARD INVARIANT: do not touch `~/dev/{blaze,chorus,portfolio}` directly.**
 The brief is explicit about this. Use `cp -r` to a sibling working
 directory; the working dir's path must NOT equal the canonical source
 path. Verify `pwd` before any apply.
@@ -381,9 +381,9 @@ No changes to the manifest shape in this pass. The new commands
 ### Phase C — rescaffold safety
 
 The rescaffold work has a HARD invariant: never modify the source repos
-at `/home/beaug/dev/{blaze,chorus,portfolio}`. The agent's first action
+at `~/dev/{blaze,chorus,portfolio}`. The agent's first action
 should be `cp -r` to a working dir at e.g.
-`/home/beaug/dev/_flint-test/<app>-rescaffold/`, then `cd` into the
+`~/dev/_flint-test/<app>-rescaffold/`, then `cd` into the
 copy. Verify `pwd` before any `flint upgrade --apply`. If the cwd
 matches the source repo path, STOP and return.
 

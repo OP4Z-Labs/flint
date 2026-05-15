@@ -266,7 +266,7 @@ block scalars) explicitly **deferred to v0.5**, paired with the planned
 
 ## Commits landed this pass
 
-### Cadence (`/home/beaug/dev/public/cadence`)
+### Cadence (`~/dev/public/cadence`)
 
 ```
 ae7fede docs(add): record canonical-delimiter decision for standards (skip dot-alias)
@@ -274,7 +274,7 @@ e504ce2 fix(cli): update audit --type stub message to reference v0.5 executor
 cbff723 fix(cli): audit --list surfaces catalog alongside scaffolded entries
 ```
 
-### Flint (`/home/beaug/dev/public/flint`)
+### Flint (`~/dev/public/flint`)
 
 ```
 ef39641 chore: bump version to 0.2.0

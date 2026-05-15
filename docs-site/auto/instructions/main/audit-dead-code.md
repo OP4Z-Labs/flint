@@ -123,7 +123,7 @@ Persistent:  N findings present in last 3 runs
 Next:
   1. Open a focused task to remove dead code from the highest cluster.
   2. Add false positives to the detector's ignore list.
-  3. Re-run: cadence audit --type dead-code.
+  3. Re-run: substrate audit --type dead-code.
 ```
 
 ## Rules

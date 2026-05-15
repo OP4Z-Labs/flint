@@ -3,7 +3,7 @@
 **Full Phase C completion** + Phase D wiring finished. All three target
 apps (Portfolio, Chorus, Blaze) successfully rescaffolded onto Flint
 v0.9 templates on isolated COPIES. Source repos at
-`/home/beaug/dev/{blaze,chorus,portfolio}` UNTOUCHED — verified by
+`~/dev/{blaze,chorus,portfolio}` UNTOUCHED — verified by
 SHA before and after.
 
 Version: still **0.9.0** in package.json (bump to 1.0.0 lands as the
@@ -23,7 +23,7 @@ Order followed the previous handoff's recommendation: Portfolio
 (`static-spa`) → Chorus (`pages-functions`) → Blaze
 (`pages-fullstack`). Each one used the same flow:
 
-1. `cp -r /home/beaug/dev/<app> /home/beaug/dev/_flint-test/<app>-rescaffold/`
+1. `cp -r ~/dev/<app> ~/dev/_flint-test/<app>-rescaffold/`
    (excluding `node_modules`, `dist`, `dev-dist`).
 2. `npm install` in the copy.
 3. Baseline build + test + typecheck.
@@ -140,7 +140,7 @@ Total project: 350 → 354 (+4 net).
 
 ### Portfolio (`static-spa`)
 
-- Working dir: `/home/beaug/dev/_flint-test/portfolio-rescaffold/`
+- Working dir: `~/dev/_flint-test/portfolio-rescaffold/`
 - Source SHA at start/end: `deae4f224addcf7ef1ab94639085b8dd6f91be6a` (unchanged)
 - First-Flint-onboarding: yes (no pre-existing manifest)
 - Baseline: 43 tests in 10 files, build green, typecheck clean
@@ -155,7 +155,7 @@ Total project: 350 → 354 (+4 net).
 
 ### Chorus (`pages-functions`)
 
-- Working dir: `/home/beaug/dev/_flint-test/chorus-rescaffold/`
+- Working dir: `~/dev/_flint-test/chorus-rescaffold/`
 - Source SHA at start/end: `496bc96ba2ee21df42df4b5ad3d4da15304e2ba1` (unchanged)
 - First-Flint-onboarding: yes
 - Baseline: 135 tests in 13 files, build green, typecheck clean
@@ -169,7 +169,7 @@ Total project: 350 → 354 (+4 net).
 
 ### Blaze (`pages-fullstack`)
 
-- Working dir: `/home/beaug/dev/_flint-test/blaze-rescaffold/`
+- Working dir: `~/dev/_flint-test/blaze-rescaffold/`
 - Source SHA at start/end: `bc3c9951dd12b044ca53bca6991e5c10817d2eaa` (unchanged)
 - First-Flint-onboarding: yes
 - Baseline: 55 tests in 8 files, build green, typecheck clean
@@ -189,15 +189,15 @@ Total project: 350 → 354 (+4 net).
 ### Source repo verification (all three)
 
 ```
-$ cd /home/beaug/dev/portfolio && git status --short && git rev-parse HEAD
+$ cd ~/dev/portfolio && git status --short && git rev-parse HEAD
 (no output)
 deae4f224addcf7ef1ab94639085b8dd6f91be6a
 
-$ cd /home/beaug/dev/chorus && git status --short && git rev-parse HEAD
+$ cd ~/dev/chorus && git status --short && git rev-parse HEAD
 (no output)
 496bc96ba2ee21df42df4b5ad3d4da15304e2ba1
 
-$ cd /home/beaug/dev/blaze && git status --short && git rev-parse HEAD
+$ cd ~/dev/blaze && git status --short && git rev-parse HEAD
 (no output)
 bc3c9951dd12b044ca53bca6991e5c10817d2eaa
 ```
@@ -252,7 +252,7 @@ NOT blocking v1.0.
 1. **Should Flint's `_flint-test/` working dirs be retained or
    deleted?**
 
-   Recommendation: retain. They're at `/home/beaug/dev/_flint-test/{portfolio,chorus,blaze}-rescaffold/`,
+   Recommendation: retain. They're at `~/dev/_flint-test/{portfolio,chorus,blaze}-rescaffold/`,
    contain working manifests, and let you re-run `flint upgrade --check`
    later for verification. Disk cost is the `node_modules` (~700MB
    each) — acceptable.
@@ -336,10 +336,10 @@ No changes to the manifest shape in this run. The history command
 ### Source-repo-untouched invariant
 
 The brief was emphatic: never modify
-`/home/beaug/dev/{blaze,chorus,portfolio}`. This run honored that.
+`~/dev/{blaze,chorus,portfolio}`. This run honored that.
 Every state-changing command (`npm install`, `npm run build`,
 `flint upgrade --apply`, `flint upgrade --accept-current`) ran from
-inside `/home/beaug/dev/_flint-test/<app>-rescaffold/`. The pre-flight
+inside `~/dev/_flint-test/<app>-rescaffold/`. The pre-flight
 discipline was: `pwd` shows the working copy path, then run the
 command. Confirmed at end-of-run via `git status --short` + `git rev-parse HEAD`
 in each source repo.
@@ -355,10 +355,10 @@ list extended).
 
 Beau may want to inspect:
 
-- `/home/beaug/dev/_flint-test/portfolio-rescaffold/` — has Flint
+- `~/dev/_flint-test/portfolio-rescaffold/` — has Flint
   manifest, builds, tests pass
-- `/home/beaug/dev/_flint-test/chorus-rescaffold/` — same
-- `/home/beaug/dev/_flint-test/blaze-rescaffold/` — same
+- `~/dev/_flint-test/chorus-rescaffold/` — same
+- `~/dev/_flint-test/blaze-rescaffold/` — same
 
 Each has a `flint.manifest.json` showing what Flint tracks. Inspect
 to verify the `acceptCurrent: true` path's output.
@@ -368,7 +368,7 @@ to verify the `acceptCurrent: true` path's output.
 ## Versions installed (forensic record)
 
 No new dependencies. From `node_modules/<pkg>/package.json` in
-`/home/beaug/dev/public/flint/` at run completion:
+`~/dev/public/flint/` at run completion:
 
 | Package | Version |
 | --- | --- |
@@ -403,7 +403,7 @@ not Flint's deps.
 | `docs/rescaffold-report-portfolio.md` present | **met** |
 | `docs/rescaffold-report-chorus.md` present | **met** |
 | `docs/rescaffold-report-blaze.md` present | **met** |
-| Source repos at `/home/beaug/dev/{blaze,chorus,portfolio}` UNTOUCHED | **met** (verified via SHA + git status) |
+| Source repos at `~/dev/{blaze,chorus,portfolio}` UNTOUCHED | **met** (verified via SHA + git status) |
 
 ### Phase D finish
 

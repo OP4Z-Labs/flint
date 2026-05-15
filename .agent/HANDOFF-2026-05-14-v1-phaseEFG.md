@@ -158,7 +158,7 @@ Plus a "Quick Windows-native verification" walkthrough.
 produces 11 pages in ~3s. Pagefind index built (Starlight's built-in
 search). Sitemap emitted.
 
-**Cadence dogfooding:** SUCCEEDED. `node /home/beaug/dev/public/cadence/packages/cadence/dist/cli.js init --name flint-docs-site --short-code FDOC --stack typescript --quiet`
+**Cadence dogfooding:** SUCCEEDED. `node ~/dev/public/cadence/packages/cadence/dist/cli.js init --name flint-docs-site --short-code FDOC --stack typescript --quiet`
 ran cleanly inside `docs-site/`. Produced:
 
 - `docs-site/cadence.config.json` with `version: 1.0.0`, stacks: `["typescript"]`
@@ -546,7 +546,7 @@ From `docs-site/package.json` (pinned):
 | `sharp` | ^0.34.0 |
 
 After `npm install`: 346 packages total in `docs-site/node_modules/`.
-Cadence was invoked from `/home/beaug/dev/public/cadence/packages/cadence/dist/cli.js`
+Cadence was invoked from `~/dev/public/cadence/packages/cadence/dist/cli.js`
 at version `1.0.0`.
 
 ---
