@@ -275,12 +275,43 @@ Full plan in
 ## Development
 
 ```bash
-npm install         # also builds via `prepare`
-npm test            # vitest (98 unit tests across auth + templates + v0.2 surface)
-npm run lint        # eslint
-npm run typecheck   # tsc -b
-npm run build       # tsc -> dist/
+npm install              # also builds via `prepare`
+npm test                 # vitest — both layers (unit + integration)
+npm run test:unit        # unit only (~400ms)
+npm run test:integration # integration only (spawns dist/cli.js)
+npm run lint             # eslint
+npm run typecheck        # tsc -b
+npm run build            # tsc -> dist/
 ```
+
+### Testing layers
+
+Flint has **two test layers**, both run by default under `npm test`:
+
+| Layer       | Glob                       | What it does                                                        |
+| ----------- | -------------------------- | ------------------------------------------------------------------- |
+| Unit        | `tests/**/*.test.ts`       | Imports command modules directly; fast (~400ms for 100+ tests).      |
+| Integration | `tests/integration/*.spec.ts` | Spawns the real built `dist/cli.js` against tmp-dir target repos. |
+
+The integration layer was added in v0.2.1 to close a class-of-bug gap: the
+sibling Cadence project caught a P0 in the 2026-05-14 smoke run where the
+`npm link`'d binary silently no-op'd due to a symlink-resolution bug. That
+class of bug is invisible to direct-import unit tests. Spawning the binary
+exercises the commander dispatch, ESM entry-point guard, and templates-
+resolution paths that unit tests bypass.
+
+Each `it()` block in the integration suite maps 1:1 to a step in
+`.agent/SMOKE-2026-05-14.md` — so the integration suite IS the smoke
+checklist, automated.
+
+**One smoke step is manual-only.** `flint auth init`'s `.dev.vars`
+git-tracked hard-block (smoke step 10) can only be reached after the
+interactive token-paste prompt, which can't be driven from a non-TTY
+child process. The guard function (`ensureNotTracked` in
+`src/cloudflare/dev-vars.ts`) is covered by unit tests; the
+end-to-end check lives in the release smoke runbook. See
+[`tests/integration/README.md`](tests/integration/README.md) for the
+runbook and the gap rationale.
 
 ### Layout
 
@@ -312,6 +343,14 @@ templates/
 tests/
 ├── cloudflare/                  # api + credentials + dev-vars + wrangler-toml/runner tests
 ├── commands/                    # v0.2: add + configure-helpers tests
+├── integration/                 # v0.2.1: spawned-bin specs (one per smoke surface)
+│   ├── _harness.ts              # spawnSync wrapper + tmp-repo helpers
+│   ├── README.md                # smoke-step mapping + manual-only step 10
+│   ├── init.spec.ts             # smoke 1-4
+│   ├── add.spec.ts              # smoke 5-7
+│   ├── configure.spec.ts        # smoke 8
+│   ├── wrangler-patch.spec.ts   # smoke 9
+│   └── help.spec.ts             # smoke 11
 ├── templates/                   # smoke test renders every .tmpl file
 ├── util/                        # template engine tests
 └── util/tmp-home.ts             # FLINT_CONFIG_HOME sandbox helper
