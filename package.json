@@ -24,6 +24,8 @@
     "lint:fix": "eslint . --fix",
     "test": "vitest run",
     "test:watch": "vitest",
+    "test:unit": "vitest run tests/cloudflare tests/commands tests/templates tests/util",
+    "test:integration": "vitest run tests/integration",
     "test:coverage": "vitest run --coverage",
     "typecheck": "tsc -b",
     "prepare": "npm run build"
