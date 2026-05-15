@@ -33,6 +33,7 @@ import {
 } from '../cloudflare/wrangler-toml.js';
 import { runWrangler } from '../cloudflare/wrangler-runner.js';
 import { readCredentials } from '../cloudflare/credentials.js';
+import { formatResult, ok } from '../util/format-result.js';
 import { verifyToken } from '../cloudflare/api.js';
 import {
   inspectAssetBudget,
@@ -54,6 +55,14 @@ export interface DeployOptions {
   strictBudget: boolean;
   /** Override the Cloudflare Pages project name (default: wrangler.toml `name`). */
   projectName?: string;
+  /**
+   * Deploy environment. Maps to `[env.<name>]` sections in wrangler.toml.
+   * When provided, the deploy uses per-env bindings + project name + branch
+   * overrides. Defaults to no env (i.e. top-level wrangler.toml).
+   */
+  env?: string;
+  /** Emit a structured JSON result on stdout instead of human output. */
+  json?: boolean;
 }
 
 interface DeployContext {
@@ -62,21 +71,49 @@ interface DeployContext {
   branch: string;
   hasFunctions: boolean;
   strictBudget: boolean;
+  /** Resolved env name, or undefined for no-env deploy. */
+  env?: string;
 }
 
 export async function runDeploy(opts: DeployOptions): Promise<void> {
   const cwd = process.cwd();
 
   let project: string;
+  let envName: string | undefined;
   try {
     const wrangler = readWranglerToml(cwd);
-    if (opts.projectName) {
+
+    // Resolve --env <name>: must match a `[env.<name>]` section. If the env
+    // overrides `name`, use that as the project name; otherwise inherit the
+    // top-level name.
+    if (typeof opts.env === 'string' && opts.env.length > 0) {
+      const envCfg = wrangler.envs[opts.env];
+      if (!envCfg) {
+        const available = Object.keys(wrangler.envs).sort();
+        const list = available.length > 0 ? available.join(', ') : '(none defined)';
+        throw new Error(
+          `[flint] deploy: --env "${opts.env}" not found in wrangler.toml — add a [env.${opts.env}] section. Available envs: ${list}.`,
+        );
+      }
+      envName = opts.env;
+      if (opts.projectName) {
+        project = opts.projectName;
+      } else if (typeof envCfg.name === 'string' && envCfg.name.length > 0) {
+        project = envCfg.name;
+      } else if (typeof wrangler.name === 'string' && wrangler.name.length > 0) {
+        project = wrangler.name;
+      } else {
+        throw new Error(
+          `[flint] deploy: wrangler.toml has no \`name\` (top-level or [env.${opts.env}]) — pass --project-name or add \`name = "..."\`.`,
+        );
+      }
+    } else if (opts.projectName) {
       project = opts.projectName;
     } else if (typeof wrangler.name === 'string' && wrangler.name.length > 0) {
       project = wrangler.name;
     } else {
       throw new Error(
-        'wrangler.toml has no `name` — pass --project-name or set `name = "..."`.',
+        '[flint] deploy: wrangler.toml has no `name` — pass --project-name or set `name = "..."`.',
       );
     }
   } catch (e) {
@@ -102,9 +139,11 @@ export async function runDeploy(opts: DeployOptions): Promise<void> {
     branch,
     hasFunctions,
     strictBudget: opts.strictBudget,
+    env: envName,
   };
 
   log.heading(`Deploying ${project}`);
+  if (envName) log.dim(`  Env:       ${envName}`);
   log.dim(`  Branch:    ${branch}`);
   log.dim(`  Functions: ${hasFunctions ? 'yes' : 'no'}`);
   log.dim(`  Strict budget: ${opts.strictBudget ? 'yes (fail on warning)' : 'no (warn only)'}`);
@@ -139,7 +178,20 @@ export async function runDeploy(opts: DeployOptions): Promise<void> {
     log.ok(`  Deployment: ${deployRes.deploymentId}`);
   }
   log.ok(`  Branch:     ${ctx.branch}`);
+  if (ctx.env) log.ok(`  Env:        ${ctx.env}`);
   log.ok(`  Duration:   ${elapsed}s`);
+
+  formatResult(
+    ok('deploy', {
+      projectName: ctx.projectName,
+      branch: ctx.branch,
+      env: ctx.env ?? null,
+      url: deployRes.url,
+      deploymentId: deployRes.deploymentId ?? null,
+      durationSeconds: Number(elapsed),
+    }),
+    { json: opts.json === true },
+  );
 }
 
 // ─── pre-flight steps ──────────────────────────────────────────────────────
@@ -243,8 +295,9 @@ interface DeployStdoutResult {
 }
 
 function stepWranglerDeploy(ctx: DeployContext): DeployStdoutResult | null {
+  const envFlag = ctx.env ? ` --env=${ctx.env}` : '';
   log.step(
-    `deploy — wrangler pages deploy dist --project-name=${ctx.projectName} --branch=${ctx.branch}`,
+    `deploy — wrangler pages deploy dist --project-name=${ctx.projectName} --branch=${ctx.branch}${envFlag}`,
   );
   const args = [
     'pages',
@@ -253,6 +306,9 @@ function stepWranglerDeploy(ctx: DeployContext): DeployStdoutResult | null {
     `--project-name=${ctx.projectName}`,
     `--branch=${ctx.branch}`,
   ];
+  if (ctx.env) {
+    args.push(`--env=${ctx.env}`);
+  }
   const creds = readCredentials();
   const res = runWrangler(args, {
     cwd: ctx.cwd,

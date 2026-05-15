@@ -48,6 +48,7 @@ import { openInBrowser } from '../util/browser.js';
 import { log, color } from '../util/logger.js';
 import { credentialsPath, flintConfigDir, rotatedCredentialsDir, DEV_VARS_FILENAME } from '../util/paths.js';
 import { join } from 'node:path';
+import { formatResult, ok as okResult } from '../util/format-result.js';
 
 const DASHBOARD_URL = 'https://dash.cloudflare.com/profile/api-tokens';
 
@@ -121,12 +122,22 @@ export async function authRotate(opts: AuthInteractiveOptions): Promise<void> {
 
 // ─── auth status ───────────────────────────────────────────────────────────
 
-export async function authStatus(): Promise<void> {
+export interface AuthStatusOptions {
+  /** Emit a structured JSON result on stdout instead of human output. */
+  json?: boolean;
+}
+
+export async function authStatus(opts: AuthStatusOptions = {}): Promise<void> {
+  const json = opts.json === true;
   const creds = readCredentials();
   if (!creds) {
     log.err('No Cloudflare credentials stored.');
     log.info('Run `flint auth init` to create and store an API token.');
     process.exitCode = 1;
+    formatResult(
+      okResult('auth status', { stored: false }),
+      { json },
+    );
     return;
   }
 
@@ -135,11 +146,9 @@ export async function authStatus(): Promise<void> {
   log.heading('Cloudflare credentials');
   log.dim(`  Path:    ${credentialsPath()}`);
   log.dim(`  Storage: ${mode}${mode === 'keychain' ? ' (OS keychain)' : ' (.dev.vars / file)'}`);
-  if (mode === 'keychain') {
-    const available = await isKeychainAvailable();
-    if (!available) {
-      log.warn('  Keychain selected but not available right now. Will fall back to file on next read.');
-    }
+  const keychainAvailable = mode === 'keychain' ? await isKeychainAvailable() : null;
+  if (mode === 'keychain' && keychainAvailable === false) {
+    log.warn('  Keychain selected but not available right now. Will fall back to file on next read.');
   }
   log.dim(`  Account: ${creds.accountName}`);
   log.dim(`  ID:      ${creds.accountId}`);
@@ -147,28 +156,59 @@ export async function authStatus(): Promise<void> {
   log.blank();
 
   log.step('Verifying token with Cloudflare…');
+  let active = false;
+  let expiresOn: string | null = null;
+  let verifyError: string | null = null;
   try {
     const result = await verifyToken(creds.token);
     if (result.active) {
+      active = true;
+      expiresOn = result.expiresOn ?? null;
       log.ok(`Token is active${result.expiresOn ? ` (expires ${result.expiresOn})` : ' (no expiry)'}.`);
     } else {
       log.err('Token is not active. Run `flint auth rotate`.');
       process.exitCode = 1;
     }
   } catch (e) {
-    log.err(e instanceof Error ? e.message : String(e));
+    verifyError = e instanceof Error ? e.message : String(e);
+    log.err(verifyError);
     process.exitCode = 1;
   }
+
+  // NB: the JSON shape MUST NOT include the token. Account ID + name +
+  // creation timestamp are user-visible in the dashboard and not credential
+  // material on their own.
+  formatResult(
+    okResult('auth status', {
+      stored: true,
+      storageMode: mode,
+      keychainAvailable,
+      accountId: creds.accountId,
+      accountName: creds.accountName,
+      createdAt: creds.createdAt,
+      active,
+      expiresOn,
+      verifyError,
+    }),
+    { json },
+  );
 }
 
 // ─── auth doctor ───────────────────────────────────────────────────────────
 
-export async function authDoctor(): Promise<void> {
+export interface AuthDoctorOptions {
+  /** Emit a structured JSON result on stdout instead of human output. */
+  json?: boolean;
+}
+
+export async function authDoctor(opts: AuthDoctorOptions = {}): Promise<void> {
+  const json = opts.json === true;
   const creds = readCredentials();
   if (!creds) {
     log.err('No Cloudflare credentials stored.');
     log.info('Run `flint auth init` first.');
     process.exitCode = 1;
+    formatResult(okResult('auth doctor', { stored: false }), { json });
     return;
   }
 
@@ -183,18 +223,28 @@ export async function authDoctor(): Promise<void> {
     if (!verify.active) {
       log.err('Token is not active. Run `flint auth rotate` before re-running the doctor.');
       process.exitCode = 1;
+      formatResult(
+        okResult('auth doctor', { stored: true, tokenActive: false, scopes: [] }),
+        { json },
+      );
       return;
     }
   } catch (e) {
     log.err(`Token verification failed: ${e instanceof Error ? e.message : String(e)}`);
     process.exitCode = 1;
+    formatResult(
+      okResult('auth doctor', { stored: true, tokenActive: null, scopes: [] }),
+      { json },
+    );
     return;
   }
 
   let failures = 0;
+  const scopeResults: Array<{ group: string; label: string; level: string; ok: boolean }> = [];
   for (const scope of REQUIRED_SCOPES) {
     const result = await probeScope(scope.probeId, creds.token, creds.accountId);
     const label = `${scope.group} → ${scope.label} (${scope.level})`;
+    scopeResults.push({ group: scope.group, label: scope.label, level: scope.level, ok: result.ok });
     if (result.ok) {
       log.ok(`${label} — ${result.detail}`);
     } else {
@@ -209,6 +259,15 @@ export async function authDoctor(): Promise<void> {
     log.err(`${failures} scope(s) missing. Edit the token at ${DASHBOARD_URL} and add the missing rows above.`);
     process.exitCode = 1;
   }
+  formatResult(
+    okResult('auth doctor', {
+      stored: true,
+      tokenActive: true,
+      scopes: scopeResults,
+      failures,
+    }),
+    { json },
+  );
 }
 
 // ─── shared flow ───────────────────────────────────────────────────────────

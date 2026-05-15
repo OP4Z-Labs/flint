@@ -43,6 +43,7 @@ import {
   type WranglerToml,
 } from '../cloudflare/wrangler-toml.js';
 import { log } from '../util/logger.js';
+import { formatResult, ok } from '../util/format-result.js';
 
 export interface ConfigureOptions {
   /** Show what would happen without invoking wrangler or writing anything. */
@@ -57,6 +58,8 @@ export interface ConfigureOptions {
   skipSecrets: boolean;
   /** Optional list of secret names to set. If empty, we'll prompt. */
   secrets?: string[];
+  /** Emit a structured JSON result on stdout instead of human output. */
+  json?: boolean;
 }
 
 interface ConfigureContext {
@@ -143,6 +146,16 @@ export async function runConfigure(opts: ConfigureOptions): Promise<void> {
   printSummary(ctx.summary);
   log.blank();
   log.info('Next: `npm run dev` to test locally, or `npm run deploy` to ship.');
+
+  formatResult(
+    ok('configure', {
+      cwd,
+      dryRun: ctx.dryRun,
+      wranglerTomlChanged: changed,
+      summary: ctx.summary,
+    }),
+    { json: opts.json === true },
+  );
 }
 
 // Pre-flight ───────────────────────────────────────────────────────────────

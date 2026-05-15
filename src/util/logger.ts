@@ -26,13 +26,29 @@ export function color(c: Color, s: string): string {
   return `${open}${s}${close}`;
 }
 
+// When the CLI is in `--json` mode, all human-readable output is routed to
+// stderr so the structured result on stdout remains parseable by a pipe.
+// Callers set this via setJsonMode(true) once at entry; the logger's stdout-
+// flavoured methods then redirect.
+let jsonMode = false;
+export function setJsonMode(enabled: boolean): void {
+  jsonMode = enabled;
+}
+function out(msg: string): void {
+  if (jsonMode) {
+    process.stderr.write(msg + '\n');
+  } else {
+    console.log(msg);
+  }
+}
+
 export const log = {
-  info: (msg: string): void => console.log(msg),
-  ok: (msg: string): void => console.log(`${color('green', '✓')} ${msg}`),
+  info: (msg: string): void => out(msg),
+  ok: (msg: string): void => out(`${color('green', '✓')} ${msg}`),
   warn: (msg: string): void => console.warn(`${color('yellow', '!')} ${msg}`),
   err: (msg: string): void => console.error(`${color('red', '✗')} ${msg}`),
-  step: (msg: string): void => console.log(`${color('cyan', '›')} ${msg}`),
-  dim: (msg: string): void => console.log(color('dim', msg)),
-  heading: (msg: string): void => console.log(`\n${color('bold', msg)}`),
-  blank: (): void => console.log(''),
+  step: (msg: string): void => out(`${color('cyan', '›')} ${msg}`),
+  dim: (msg: string): void => out(color('dim', msg)),
+  heading: (msg: string): void => out(`\n${color('bold', msg)}`),
+  blank: (): void => out(''),
 };

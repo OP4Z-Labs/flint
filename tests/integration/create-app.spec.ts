@@ -262,7 +262,7 @@ describe('flint create-app (integration)', () => {
       { cwd: repo.dir },
     );
     expect(res.status).not.toBe(0);
-    expect(`${res.stdout}\n${res.stderr}`).toMatch(/Unknown package manager.*cargo/i);
+    expect(`${res.stdout}\n${res.stderr}`).toMatch(/unknown PM.*cargo/i);
   });
 
   it('honours --pm bun even when npm_config_user_agent suggests npm', () => {

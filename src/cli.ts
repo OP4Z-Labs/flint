@@ -19,15 +19,50 @@ import { runCreateApp } from './commands/create-app.js';
 import { runDeploy } from './commands/deploy.js';
 import { runUpgrade } from './commands/upgrade.js';
 import { runConfig } from './commands/config.js';
+import {
+  runTelemetryShow,
+  runTelemetryPurge,
+  runTelemetryExport,
+} from './commands/telemetry.js';
+import { runUninstall } from './commands/uninstall.js';
+import { runDoctor } from './commands/doctor.js';
 import { readPackageVersion } from './util/version.js';
 import { emitEvent, ensureTelemetryConsent } from './util/telemetry.js';
+import { setJsonMode } from './util/logger.js';
+import { formatResult, err as errResult } from './util/format-result.js';
 
 const program = new Command();
 
 program
   .name('flint')
   .description('Flint — Cloudflare Pages bootstrap CLI (Vite + React + TypeScript + Wrangler v4)')
-  .version(readPackageVersion(), '-v, --version', 'print the Flint version');
+  .version(readPackageVersion(), '-v, --version', 'print the Flint version')
+  .option(
+    '--telemetry-endpoint <url>',
+    'POST telemetry events to <url> instead of (or in addition to) the local log',
+  )
+  .option('--json', 'emit a single JSON result on stdout instead of human output');
+
+/**
+ * Resolve the `--json` flag for a subcommand. Commander attaches global flags
+ * to the parent program rather than the action handler's `opts`, so we read
+ * them from the program instance.
+ */
+function globalJson(): boolean {
+  const opts = program.opts<{ json?: boolean }>();
+  return opts.json === true;
+}
+
+/**
+ * Resolve the `--telemetry-endpoint <url>` flag. Set the env var so
+ * `emitEvent` can pick it up without taking a parameter on every call site.
+ */
+function applyTelemetryEndpoint(): void {
+  const opts = program.opts<{ telemetryEndpoint?: string }>();
+  if (typeof opts.telemetryEndpoint === 'string' && opts.telemetryEndpoint.length > 0) {
+    process.env.FLINT_TELEMETRY_ENDPOINT = opts.telemetryEndpoint;
+  }
+}
 
 // ─── auth ──────────────────────────────────────────────────────────────────
 const auth = program
@@ -54,14 +89,14 @@ auth
   .command('status')
   .description("show the currently stored token's account, validity, and scopes")
   .action(async () => {
-    await authStatus();
+    await authStatus({ json: globalJson() });
   });
 
 auth
   .command('doctor')
   .description('validate that the stored token carries every required Cloudflare scope')
   .action(async () => {
-    await authDoctor();
+    await authDoctor({ json: globalJson() });
   });
 
 auth
@@ -118,6 +153,7 @@ program
         includeCI: opts.ci,
         yes: opts.yes,
         force: opts.force,
+        json: globalJson(),
       });
     },
   );
@@ -161,6 +197,7 @@ program
         noGit: opts.git === false,
         provision: opts.provision === true,
         yes: opts.yes === true,
+        json: globalJson(),
       });
     },
   );
@@ -178,6 +215,10 @@ program
     '--project-name <name>',
     'Cloudflare Pages project name (default: wrangler.toml `name`)',
   )
+  .option(
+    '--env <name>',
+    'Deploy environment (must match a [env.<name>] section in wrangler.toml)',
+  )
   .action(
     async (opts: {
       branch?: string;
@@ -186,6 +227,7 @@ program
       rollback?: boolean;
       strictBudget?: boolean;
       projectName?: string;
+      env?: string;
     }) => {
       await runDeploy({
         branch: opts.branch,
@@ -194,6 +236,8 @@ program
         rollback: opts.rollback === true,
         strictBudget: opts.strictBudget === true,
         projectName: opts.projectName,
+        env: opts.env,
+        json: globalJson(),
       });
     },
   );
@@ -213,9 +257,61 @@ program
         diff: opts.diff === true,
         apply: opts.apply === true,
         dryRun: opts.dryRun === true,
+        json: globalJson(),
       });
     },
   );
+
+// ─── doctor (v1.0) ─────────────────────────────────────────────────────────
+program
+  .command('doctor')
+  .description('full-stack diagnostics — node, package manager, wrangler, auth, repo state')
+  .action(async () => {
+    await runDoctor({ json: globalJson() });
+  });
+
+// ─── uninstall (v1.0) ──────────────────────────────────────────────────────
+program
+  .command('uninstall')
+  .description('remove Flint-scaffolded files from the current project (manifest-aware)')
+  .option('--dry-run', 'print the deletion plan without writing anything')
+  .option('-y, --yes', 'skip the confirmation prompt')
+  .option('--include-modified', 'also delete user-modified scaffolds (destructive)')
+  .action(async (opts: { dryRun?: boolean; yes?: boolean; includeModified?: boolean }) => {
+    await runUninstall({
+      dryRun: opts.dryRun === true,
+      yes: opts.yes === true,
+      includeModified: opts.includeModified === true,
+      json: globalJson(),
+    });
+  });
+
+// ─── telemetry (v1.0) ──────────────────────────────────────────────────────
+const telemetry = program
+  .command('telemetry')
+  .description('inspect, purge, or export the local telemetry event log');
+
+telemetry
+  .command('show')
+  .description('print the current local event log on stdout (JSON lines or pretty)')
+  .action(() => {
+    runTelemetryShow({ json: globalJson() });
+  });
+
+telemetry
+  .command('purge')
+  .description('delete the local telemetry event log')
+  .action(() => {
+    runTelemetryPurge({ json: globalJson() });
+  });
+
+telemetry
+  .command('export <file>')
+  .description('copy the local telemetry event log to <file>')
+  .option('--force', 'overwrite <file> if it already exists')
+  .action((file: string, opts: { force?: boolean }) => {
+    runTelemetryExport({ outPath: file, force: opts.force === true, json: globalJson() });
+  });
 
 // ─── config (v0.9) ─────────────────────────────────────────────────────────
 program
@@ -224,7 +320,7 @@ program
   .option('--telemetry <on|off>', 'enable or disable anonymous usage stats')
   .option('--show', 'print current settings without changing anything')
   .action(async (opts: { telemetry?: string; show?: boolean }) => {
-    await runConfig({ telemetry: opts.telemetry, show: opts.show === true });
+    await runConfig({ telemetry: opts.telemetry, show: opts.show === true, json: globalJson() });
   });
 
 // ─── configure (v0.2) ──────────────────────────────────────────────────────
@@ -256,6 +352,7 @@ program
         skipR2: opts.r2 === false,
         skipSecrets: opts.secrets === false,
         secrets: secretNames,
+        json: globalJson(),
       });
     },
   );
@@ -278,6 +375,7 @@ add
         noProvision: opts.provision === false,
         force: opts.force === true,
         yes: opts.yes === true,
+        json: globalJson(),
       });
     },
   );
@@ -295,6 +393,7 @@ add
         noProvision: opts.provision === false,
         force: opts.force === true,
         yes: opts.yes === true,
+        json: globalJson(),
       });
     },
   );
@@ -306,7 +405,7 @@ add
   .option('--force', 'overwrite an existing vite.config.ts patch')
   .option('-y, --yes', 'accept defaults; never prompt')
   .action(async (opts: { force?: boolean; yes?: boolean }) => {
-    await runAddPwa({ force: opts.force === true, yes: opts.yes === true });
+    await runAddPwa({ force: opts.force === true, yes: opts.yes === true, json: globalJson() });
   });
 
 add
@@ -315,7 +414,7 @@ add
   .option('--force', 'overwrite an existing functions/_shared/auth.ts')
   .option('-y, --yes', 'accept defaults; never prompt')
   .action(async (opts: { force?: boolean; yes?: boolean }) => {
-    await runAddAuth({ force: opts.force === true, yes: opts.yes === true });
+    await runAddAuth({ force: opts.force === true, yes: opts.yes === true, json: globalJson() });
   });
 
 add
@@ -324,7 +423,7 @@ add
   .option('--force', 'overwrite an existing functions/_shared/ratelimit.ts')
   .option('-y, --yes', 'accept defaults; never prompt')
   .action(async (opts: { force?: boolean; yes?: boolean }) => {
-    await runAddRateLimit({ force: opts.force === true, yes: opts.yes === true });
+    await runAddRateLimit({ force: opts.force === true, yes: opts.yes === true, json: globalJson() });
   });
 
 add
@@ -353,6 +452,7 @@ add
         noProvision: opts.provision === false,
         writeToDevVars: opts.writeToDevVars === true,
         yes: opts.yes === true,
+        json: globalJson(),
       });
     },
   );
@@ -370,7 +470,18 @@ const skipConsent =
   process.argv.includes('-h');
 
 async function main(): Promise<void> {
-  if (!skipConsent) {
+  // Pre-parse the global flags so we can wire logger + telemetry endpoint
+  // before commander dispatches. parseOptions short-circuits without running
+  // any subcommand action.
+  if (process.argv.includes('--json')) {
+    setJsonMode(true);
+  }
+  applyTelemetryEndpoint();
+
+  if (!skipConsent && !process.argv.includes('--json')) {
+    // Skip the consent prompt in --json mode: interactive prompts would
+    // corrupt the JSON-on-stdout contract. Telemetry remains off by default
+    // when no preference is set.
     await ensureTelemetryConsent();
   }
   // Emit a telemetry event for the top-level command name (no args). This is
@@ -398,7 +509,10 @@ main().catch((err: unknown) => {
   if (top && !top.startsWith('-')) {
     emitEvent({ event: top, errorType: errType });
   }
-  if (err instanceof Error) {
+  const message = err instanceof Error ? err.message : String(err);
+  if (process.argv.includes('--json')) {
+    formatResult(errResult(top ?? 'unknown', errType, message), { json: true });
+  } else if (err instanceof Error) {
     console.error(`\nflint: ${err.message}`);
   } else {
     console.error('\nflint: unknown error', err);

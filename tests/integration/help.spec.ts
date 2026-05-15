@@ -40,6 +40,10 @@ const HELP_CASES: ReadonlyArray<HelpCase> = [
       'add',
       'upgrade',
       'config',
+      'doctor',
+      'uninstall',
+      'telemetry',
+      '--json',
     ],
   },
   {
@@ -97,6 +101,30 @@ const HELP_CASES: ReadonlyArray<HelpCase> = [
       '--write-to-dev-vars',
       '-y, --yes',
     ],
+  },
+  {
+    args: ['doctor', '--help'],
+    mustInclude: ['Usage: flint doctor', 'full-stack diagnostics'],
+  },
+  {
+    args: ['uninstall', '--help'],
+    mustInclude: ['Usage: flint uninstall', '--dry-run', '--include-modified'],
+  },
+  {
+    args: ['telemetry', '--help'],
+    mustInclude: ['Usage: flint telemetry', 'show', 'purge', 'export'],
+  },
+  {
+    args: ['telemetry', 'show', '--help'],
+    mustInclude: ['Usage: flint telemetry show'],
+  },
+  {
+    args: ['telemetry', 'export', '--help'],
+    mustInclude: ['Usage: flint telemetry export', '--force'],
+  },
+  {
+    args: ['deploy', '--help'],
+    mustInclude: ['Usage: flint deploy', '--env', '--branch', '--rollback'],
   },
 ];
 
