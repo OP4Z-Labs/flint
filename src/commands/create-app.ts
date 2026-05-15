@@ -1,0 +1,415 @@
+// `flint create-app <name>` — bootstrap a fresh Vite + React + TS app with
+// all Cloudflare Pages wiring pre-baked. Parallel to `npm create vite@latest`,
+// but instead of "vite-app-template + vanilla wiring" you get:
+//
+//   - the chosen variant's wrangler.toml + _headers + _routes.json
+//   - the variant's functions/_shared/* (pages-functions, pages-fullstack)
+//   - the variant's vite.config.ts (PWA-on for static-spa & pages-fullstack,
+//     PWA-on with Functions proxy for pages-functions)
+//   - the shared skeleton: package.json, tsconfig refs, eslint config,
+//     vitest config, index.html, src/App.tsx, src/main.tsx, src/index.css
+//   - .gitignore (with .dev.vars), .dev.vars.example
+//   - optional `git init` (default on; --no-git opts out)
+//   - optional `npm install` / `pnpm install` / `bun install` (default on
+//     for the auto-detected PM; --no-install opts out)
+//   - optional `flint configure` invocation immediately after scaffold
+//     (--provision opts in; default off — most users want to inspect first)
+//
+// Composition order: skeleton (_skeleton/) is laid down first, then the
+// variant on top. The variant's files override skeleton on conflict. Both
+// trees are walked with the same .tmpl-suffix-stripping + gitignore.tmpl
+// → .gitignore renaming rules as `flint init`.
+//
+// Behavioural choice: we DON'T re-run the same code path as `flint init`,
+// even though there's overlap. `init` overlays config onto an EXISTING repo
+// (with overwrite prompts); `create-app` builds a NEW directory from
+// scratch (no prompts ever, the dir must be empty). Keeping them separate
+// makes both code paths simpler.
+
+import { select } from '@inquirer/prompts';
+import {
+  existsSync,
+  mkdirSync,
+  readdirSync,
+  readFileSync,
+  statSync,
+  writeFileSync,
+} from 'node:fs';
+import { spawnSync } from 'node:child_process';
+import { dirname, join, relative, resolve } from 'node:path';
+import { fileURLToPath } from 'node:url';
+import { renderFile, type TemplateVars } from '../util/template.js';
+import { log } from '../util/logger.js';
+import { writeDevVarsExample, type DevVarsEntry } from '../cloudflare/dev-vars.js';
+import {
+  installCommand,
+  resolvePackageManager,
+  type PackageManager,
+} from '../util/package-manager.js';
+import { runConfigure } from './configure.js';
+
+export type CreateAppVariant = 'static-spa' | 'pages-functions' | 'pages-fullstack';
+
+export interface CreateAppOptions {
+  /** Target directory name (becomes the Pages project name unless overridden). */
+  appName: string;
+  /** Optional override for the Cloudflare Pages project name. */
+  cfProject?: string;
+  /** Template variant. If undefined, the CLI prompts (unless --yes). */
+  variant?: string;
+  /** Reserved for future: --template <git+url>. v0.5 stubs the flag. */
+  template?: string;
+  /** Package manager override. Auto-detected if undefined. */
+  pm?: string;
+  /** If true, skip `<pm> install`. */
+  noInstall: boolean;
+  /** If true, skip `git init`. */
+  noGit: boolean;
+  /** If true, run `flint configure` immediately after scaffold. */
+  provision: boolean;
+  /** Non-interactive mode — skip all prompts, use defaults. */
+  yes: boolean;
+}
+
+const SUPPORTED_VARIANTS: ReadonlyArray<CreateAppVariant> = [
+  'static-spa',
+  'pages-functions',
+  'pages-fullstack',
+];
+
+const VARIANT_DESCRIPTIONS: Record<CreateAppVariant, string> = {
+  'static-spa': 'static-spa — Vite + React + TS, no Pages Functions (Portfolio-style)',
+  'pages-functions': 'pages-functions — adds 1 KV namespace + HMAC auth (Chorus-style)',
+  'pages-fullstack': 'pages-fullstack — adds KV + R2 + PWA + HMAC auth (Blaze-style)',
+};
+
+export async function runCreateApp(opts: CreateAppOptions): Promise<void> {
+  validateAppName(opts.appName);
+
+  // Resolve target directory + ensure it's safe to write into.
+  const target = resolve(process.cwd(), opts.appName);
+  if (existsSync(target)) {
+    const contents = readdirSync(target);
+    // Allow non-empty if only ignorable entries (.git, .DS_Store) are present.
+    const meaningful = contents.filter(
+      (e) => !['.git', '.DS_Store', '.idea', '.vscode'].includes(e),
+    );
+    if (meaningful.length > 0) {
+      throw new Error(
+        `Refusing to scaffold into "${opts.appName}" — directory exists and is not empty. ` +
+          `Remove it or pick a new name.`,
+      );
+    }
+  }
+
+  // Stubbed flag — record + ignore until v0.9.
+  if (opts.template) {
+    log.warn(
+      `--template is reserved for v0.9 (custom git+url templates). Ignoring "${opts.template}".`,
+    );
+  }
+
+  // Resolve variant + package manager + cf project name.
+  const variant = await resolveVariant(opts.variant, opts.yes);
+  const cfProject = opts.cfProject ?? opts.appName;
+  validateProjectName(cfProject);
+  const pm = resolvePackageManager(opts.pm);
+
+  log.heading(`Creating ${variant} app: "${opts.appName}"`);
+  log.dim(`  Target:           ${target}`);
+  log.dim(`  Pages project:    ${cfProject}`);
+  log.dim(`  Package manager:  ${pm}`);
+  log.dim(`  Git init:         ${opts.noGit ? 'no' : 'yes'}`);
+  log.dim(`  Install deps:     ${opts.noInstall ? 'no' : 'yes'}`);
+  log.dim(`  Provision now:    ${opts.provision ? 'yes' : 'no'}`);
+  log.blank();
+
+  // Make the target directory.
+  mkdirSync(target, { recursive: true });
+
+  // Template vars used in both skeleton + variant trees.
+  const vars: TemplateVars = {
+    appName: cfProject,
+    appNameLower: cfProject.toLowerCase(),
+    compatDate: todayISODate(),
+    cookieName: `${cfProject.toLowerCase().replace(/[^a-z0-9]+/g, '_')}_admin`,
+    tokenMessage: `${cfProject.toLowerCase().replace(/[^a-z0-9]+/g, '-')}-admin-session-v1`,
+  };
+
+  // Phase 1: lay down the shared skeleton (Vite + React + TS scaffold).
+  const skeletonRoot = resolveTemplatesDir('_skeleton');
+  const skeletonFiles = collectFiles(skeletonRoot);
+  let writtenSkeleton = 0;
+  for (const file of skeletonFiles) {
+    writeTemplateFile(file, target, vars);
+    writtenSkeleton += 1;
+  }
+  log.ok(`Skeleton: wrote ${writtenSkeleton} file(s).`);
+
+  // Phase 2: overlay the variant tree on top of the skeleton. Conflicting
+  // files (e.g. wrangler.toml) win from the variant.
+  const variantRoot = resolveTemplatesDir(variant);
+  const variantFiles = collectFiles(variantRoot);
+  let writtenVariant = 0;
+  for (const file of variantFiles) {
+    writeTemplateFile(file, target, vars);
+    writtenVariant += 1;
+  }
+  log.ok(`Variant ${variant}: wrote ${writtenVariant} file(s).`);
+
+  // .dev.vars.example — programmatically generated (entries depend on variant).
+  const envEntries = devVarsEntriesForVariant(variant);
+  const examplePath = writeDevVarsExample(target, envEntries);
+  log.ok(`Wrote ${relative(target, examplePath)}`);
+
+  // Optional: git init.
+  if (!opts.noGit) {
+    const ok = runGitInit(target);
+    if (ok) {
+      log.ok('Initialized empty git repository.');
+    } else {
+      log.warn('git init failed — install git or pass --no-git.');
+    }
+  }
+
+  // Optional: package manager install.
+  if (!opts.noInstall) {
+    log.blank();
+    log.step(`Running \`${pm} install\` (this can take a minute)…`);
+    const ok = runInstall(target, pm);
+    if (ok) {
+      log.ok(`${pm} install completed.`);
+    } else {
+      log.warn(`${pm} install failed. Run it manually:  cd ${opts.appName} && ${pm} install`);
+    }
+  }
+
+  // Optional: --provision = run `flint configure` against the new directory.
+  if (opts.provision) {
+    log.blank();
+    log.heading('Provisioning Cloudflare resources for the new project');
+    const prevCwd = process.cwd();
+    try {
+      process.chdir(target);
+      await runConfigure({
+        dryRun: false,
+        skipPagesProject: false,
+        skipKv: false,
+        skipR2: false,
+        skipSecrets: false,
+      });
+    } catch (e) {
+      log.err(`Provisioning failed: ${e instanceof Error ? e.message : String(e)}`);
+      log.dim(`  You can re-run later:  cd ${opts.appName} && flint configure`);
+    } finally {
+      process.chdir(prevCwd);
+    }
+  }
+
+  // What's next.
+  log.blank();
+  log.heading('Done.');
+  printNextSteps(opts.appName, pm, variant, {
+    didInstall: !opts.noInstall,
+    didProvision: opts.provision,
+  });
+}
+
+// ─── helpers ───────────────────────────────────────────────────────────────
+
+function validateAppName(name: string): void {
+  if (!name || name.trim().length === 0) {
+    throw new Error('App name is required.');
+  }
+  if (/[\\/]/.test(name)) {
+    throw new Error('App name must not contain path separators.');
+  }
+  if (name === '.' || name === '..') {
+    throw new Error('App name must not be "." or "..".');
+  }
+}
+
+function validateProjectName(name: string): void {
+  if (!/^[a-z][a-z0-9-]{1,57}[a-z0-9]$/.test(name)) {
+    throw new Error(
+      `Cloudflare Pages project name "${name}" is invalid. ` +
+        'Must start with a letter, contain only lowercase letters, digits, and hyphens, ' +
+        'be 3–58 characters, and not end with a hyphen.',
+    );
+  }
+}
+
+async function resolveVariant(
+  raw: string | undefined,
+  yes: boolean,
+): Promise<CreateAppVariant> {
+  if (raw) {
+    if (!SUPPORTED_VARIANTS.includes(raw as CreateAppVariant)) {
+      throw new Error(
+        `Unknown variant "${raw}". Supported: ${SUPPORTED_VARIANTS.join(', ')}.`,
+      );
+    }
+    return raw as CreateAppVariant;
+  }
+  if (yes) {
+    log.dim('--yes specified without --variant; defaulting to static-spa.');
+    return 'static-spa';
+  }
+  const picked = await select<CreateAppVariant>({
+    message: 'Which template variant?',
+    choices: SUPPORTED_VARIANTS.map((v) => ({
+      name: VARIANT_DESCRIPTIONS[v],
+      value: v,
+    })),
+    default: 'static-spa',
+  });
+  return picked;
+}
+
+function todayISODate(): string {
+  return new Date().toISOString().slice(0, 10);
+}
+
+interface PlannedFile {
+  /** Absolute path to the template source on disk. */
+  src: string;
+  /** Path relative to the project root where the file should be written. */
+  dest: string;
+}
+
+/**
+ * Walk a template tree and produce the list of files to write. Path mapping:
+ *   - Files ending in `.tmpl` lose that suffix in the output.
+ *   - The top-level `gitignore` template (no leading dot — npm strips
+ *     dotfiles from published packages) becomes `.gitignore`.
+ */
+function collectFiles(templateRoot: string): PlannedFile[] {
+  const planned: PlannedFile[] = [];
+  walk(templateRoot, '');
+  return planned;
+
+  function walk(absDir: string, relDir: string): void {
+    for (const entry of readdirSync(absDir)) {
+      const abs = join(absDir, entry);
+      const rel = relDir ? join(relDir, entry) : entry;
+      const stat = statSync(abs);
+      if (stat.isDirectory()) {
+        walk(abs, rel);
+        continue;
+      }
+      let destRel = rel;
+      if (destRel.endsWith('.tmpl')) destRel = destRel.slice(0, -'.tmpl'.length);
+      if (destRel === 'gitignore') destRel = '.gitignore';
+      planned.push({ src: abs, dest: destRel });
+    }
+  }
+}
+
+function writeTemplateFile(file: PlannedFile, target: string, vars: TemplateVars): void {
+  const destPath = join(target, file.dest);
+  // Use the templating engine for .tmpl files; otherwise copy bytes verbatim
+  // through readFile/writeFile (no template processing on non-tmpl files —
+  // {{...}} in raw source files like `eslint.config.js` is unmolested).
+  let contents: string;
+  if (file.src.endsWith('.tmpl')) {
+    contents = renderFile(file.src, vars);
+  } else {
+    contents = readFileSync(file.src, 'utf8');
+  }
+  mkdirSync(dirname(destPath), { recursive: true });
+  writeFileSync(destPath, contents, 'utf8');
+}
+
+function resolveTemplatesDir(variant: string): string {
+  // dist/commands/create-app.js  →  ../../templates/<variant>
+  // src/commands/create-app.ts   →  ../../templates/<variant>  (vitest)
+  const here = dirname(fileURLToPath(import.meta.url));
+  const candidate = resolve(here, '..', '..', 'templates', variant);
+  if (existsSync(candidate)) return candidate;
+  throw new Error(`Templates directory not found: ${candidate}`);
+}
+
+function devVarsEntriesForVariant(variant: CreateAppVariant): DevVarsEntry[] {
+  // static-spa needs only the CF token (for `wrangler pages deploy`); the
+  // function variants additionally need the HMAC + admin-password pair.
+  const cfEntries: DevVarsEntry[] = [
+    {
+      key: 'CLOUDFLARE_API_TOKEN',
+      value: '',
+      comment:
+        'Cloudflare API token. Managed by Flint — run `flint auth init` to populate.',
+    },
+    {
+      key: 'CLOUDFLARE_ACCOUNT_ID',
+      value: '',
+      comment: 'Cloudflare account id. Populated by `flint auth init`.',
+    },
+  ];
+  if (variant === 'static-spa') return cfEntries;
+  return [
+    ...cfEntries,
+    {
+      key: 'ADMIN_PASSWORD',
+      value: '',
+      comment: 'Plaintext password compared directly by /api/admin/login.',
+    },
+    {
+      key: 'COOKIE_SECRET',
+      value: '',
+      comment:
+        'Random hex for the HMAC session cookie. Rotate to invalidate every session.\nGenerate with: openssl rand -hex 32',
+    },
+  ];
+}
+
+function runGitInit(target: string): boolean {
+  // `git init` first; `git branch -m main` to normalize the default branch
+  // (git defaults to `master` on systems without init.defaultBranch set).
+  const init = spawnSync('git', ['init', '--quiet'], { cwd: target, encoding: 'utf8' });
+  if (init.status !== 0) return false;
+  // Best-effort rename to main; ignore failures (already-main, no commits yet
+  // edge cases; an explicit branch -m fails on an empty repo on older git).
+  const cfg = spawnSync('git', ['symbolic-ref', 'HEAD', 'refs/heads/main'], {
+    cwd: target,
+    encoding: 'utf8',
+  });
+  void cfg;
+  return true;
+}
+
+function runInstall(target: string, pm: PackageManager): boolean {
+  const [bin, args] = installCommand(pm);
+  // stdio: 'inherit' so the user sees the install progress live. We don't
+  // capture output — install logs are noisy and timing-sensitive.
+  const res = spawnSync(bin, args, {
+    cwd: target,
+    stdio: 'inherit',
+  });
+  return res.status === 0;
+}
+
+function printNextSteps(
+  appName: string,
+  pm: PackageManager,
+  variant: CreateAppVariant,
+  state: { didInstall: boolean; didProvision: boolean },
+): void {
+  log.info('Next steps:');
+  log.info(`  cd ${appName}`);
+  if (!state.didInstall) {
+    log.info(`  ${pm} install`);
+  }
+  if (!state.didProvision) {
+    log.info('  flint auth init     # if you have not stored a Cloudflare token yet');
+    log.info('  flint configure     # create the Pages project + provision resources');
+  }
+  if (pm === 'npm') {
+    log.info('  npm run dev         # local dev (Vite + wrangler pages dev)');
+    log.info('  flint deploy        # build, pre-flight, deploy to Cloudflare Pages');
+  } else {
+    log.info(`  ${pm} run dev         # local dev (Vite + wrangler pages dev)`);
+    log.info('  flint deploy        # build, pre-flight, deploy to Cloudflare Pages');
+  }
+  log.blank();
+  log.dim(`Generated variant: ${variant}`);
+}

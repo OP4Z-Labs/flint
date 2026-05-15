@@ -14,6 +14,7 @@ import { authInit, authStatus, authDoctor, authRotate } from './commands/auth.js
 import { runInit } from './commands/init.js';
 import { runConfigure } from './commands/configure.js';
 import { runAddKv, runAddR2, runAddSecret } from './commands/add.js';
+import { runCreateApp } from './commands/create-app.js';
 import { readPackageVersion } from './util/version.js';
 
 const program = new Command();
@@ -86,6 +87,49 @@ program
         includeCI: opts.ci,
         yes: opts.yes,
         force: opts.force,
+      });
+    },
+  );
+
+// ─── create-app (v0.5) ─────────────────────────────────────────────────────
+program
+  .command('create-app <name>')
+  .description('bootstrap a fresh Vite + React + TS app with Cloudflare Pages wiring pre-baked')
+  .option(
+    '--variant <variant>',
+    'template variant: static-spa | pages-functions | pages-fullstack',
+  )
+  .option('--template <git+url>', '(reserved for v0.9) custom template git URL')
+  .option('--pm <pm>', 'package manager: npm | pnpm | bun (auto-detected by default)')
+  .option('--cf-project <name>', 'Cloudflare Pages project name (default: <name>)')
+  .option('--no-install', 'do not run `<pm> install` after scaffolding')
+  .option('--no-git', 'do not run `git init` in the new directory')
+  .option('--provision', 'run `flint configure` immediately after scaffolding')
+  .option('-y, --yes', 'accept defaults and skip interactive prompts where possible')
+  .action(
+    async (
+      name: string,
+      opts: {
+        variant?: string;
+        template?: string;
+        pm?: string;
+        cfProject?: string;
+        install: boolean;
+        git: boolean;
+        provision?: boolean;
+        yes?: boolean;
+      },
+    ) => {
+      await runCreateApp({
+        appName: name,
+        variant: opts.variant,
+        template: opts.template,
+        pm: opts.pm,
+        cfProject: opts.cfProject,
+        noInstall: opts.install === false,
+        noGit: opts.git === false,
+        provision: opts.provision === true,
+        yes: opts.yes === true,
       });
     },
   );
