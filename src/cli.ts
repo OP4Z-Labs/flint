@@ -15,6 +15,7 @@ import { runInit } from './commands/init.js';
 import { runConfigure } from './commands/configure.js';
 import { runAddKv, runAddR2, runAddSecret } from './commands/add.js';
 import { runCreateApp } from './commands/create-app.js';
+import { runDeploy } from './commands/deploy.js';
 import { readPackageVersion } from './util/version.js';
 
 const program = new Command();
@@ -130,6 +131,39 @@ program
         noGit: opts.git === false,
         provision: opts.provision === true,
         yes: opts.yes === true,
+      });
+    },
+  );
+
+// ─── deploy (v0.5) ─────────────────────────────────────────────────────────
+program
+  .command('deploy')
+  .description('build + pre-flight + wrangler pages deploy, with health-ping summary')
+  .option('--branch <name>', 'Pages branch to deploy to (default: main)')
+  .option('--preview', 'deploy as a preview using the current git branch name')
+  .option('--skip-checks', 'skip lint / typecheck / vitest pre-flight steps')
+  .option('--rollback', 'list recent deployments and roll back to a chosen one')
+  .option('--strict-budget', 'fail (not just warn) if the asset budget is exceeded')
+  .option(
+    '--project-name <name>',
+    'Cloudflare Pages project name (default: wrangler.toml `name`)',
+  )
+  .action(
+    async (opts: {
+      branch?: string;
+      preview?: boolean;
+      skipChecks?: boolean;
+      rollback?: boolean;
+      strictBudget?: boolean;
+      projectName?: string;
+    }) => {
+      await runDeploy({
+        branch: opts.branch,
+        preview: opts.preview === true,
+        skipChecks: opts.skipChecks === true,
+        rollback: opts.rollback === true,
+        strictBudget: opts.strictBudget === true,
+        projectName: opts.projectName,
       });
     },
   );
