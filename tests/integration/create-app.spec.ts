@@ -309,6 +309,34 @@ describe('flint create-app (integration)', () => {
     expect(res.stdout).toContain('flint deploy');
   });
 
+  it('detects pnpm from a parent-dir pnpm-lock.yaml when --pm is not given', () => {
+    // Phase D wiring: create-app's PM resolution defers to
+    // detectPackageManager(process.cwd()) when --pm is absent. Dropping a
+    // pnpm-lock.yaml in the temp repo (which IS process.cwd() for the
+    // spawned process) must steer the scaffold to pnpm.
+    writeFileSyncFs(join(repo.dir, 'pnpm-lock.yaml'), '');
+    const res = runFlint(
+      [
+        'create-app',
+        'pnpmapp',
+        '--variant',
+        'static-spa',
+        '--no-install',
+        '--no-git',
+        '--yes',
+      ],
+      { cwd: repo.dir },
+      // No --pm override; rely on lockfile detection.
+    );
+    expect(
+      res.status,
+      `pnpm detection failed:\nstdout:\n${res.stdout}\nstderr:\n${res.stderr}`,
+    ).toBe(0);
+    expect(res.stdout).toMatch(/Package manager:\s*pnpm/);
+    // The Next-steps block should reference pnpm idioms too.
+    expect(res.stdout).toContain('pnpm install');
+  });
+
   it('--template with unresolvable URL fails fast with a clean error message', () => {
     // v0.9 makes `--template` real: it shells out to `git clone`. We test
     // the error path with an obviously-nonexistent URL so we don't depend

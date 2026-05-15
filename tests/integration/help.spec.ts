@@ -79,7 +79,14 @@ const HELP_CASES: ReadonlyArray<HelpCase> = [
   },
   {
     args: ['upgrade', '--help'],
-    mustInclude: ['Usage: flint upgrade', '--check', '--diff', '--apply', '--dry-run'],
+    mustInclude: [
+      'Usage: flint upgrade',
+      '--check',
+      '--diff',
+      '--apply',
+      '--dry-run',
+      '--accept-current',
+    ],
   },
   {
     args: ['config', '--help'],

@@ -67,6 +67,17 @@ export interface UpgradeOptions {
   apply: boolean;
   /** Like --apply but writes nothing. */
   dryRun: boolean;
+  /**
+   * Non-interactive sibling of --apply: for every `modified` entry, record
+   * the user's current content as the new manifest baseline (no writes to
+   * project files). Useful when introducing Flint to an existing project:
+   * `flint upgrade --check` backfills the manifest with sentinel hashes,
+   * then `flint upgrade --accept-current` flips those sentinels to real
+   * content hashes so subsequent `upgrade --check` runs report
+   * `unmodified` until the user actually edits something. The `missing`
+   * and `ejected` states are left untouched.
+   */
+  acceptCurrent: boolean;
   /** Emit a structured JSON result on stdout instead of human output. */
   json?: boolean;
 }
@@ -108,7 +119,7 @@ export async function runUpgrade(opts: UpgradeOptions): Promise<void> {
   log.blank();
 
   const buildSummary = (
-    mode: 'check' | 'diff' | 'apply' | 'dry-run' | 'default',
+    mode: 'check' | 'diff' | 'apply' | 'dry-run' | 'accept-current' | 'default',
   ): Record<string, unknown> => {
     const counts = { unmodified: 0, modified: 0, ejected: 0, missing: 0 };
     for (const c of classified) counts[c.state.kind] += 1;
@@ -140,6 +151,15 @@ export async function runUpgrade(opts: UpgradeOptions): Promise<void> {
   if (opts.diff) {
     printDiffForModified(projectRoot, manifest, classified);
     formatResult(ok('upgrade', buildSummary('diff')), { json: opts.json === true });
+    return;
+  }
+
+  if (opts.acceptCurrent) {
+    const acceptSummary = acceptCurrentAsBaseline(projectRoot, manifest, classified, flintVersion);
+    formatResult(
+      ok('upgrade', { ...buildSummary('accept-current'), ...acceptSummary }),
+      { json: opts.json === true },
+    );
     return;
   }
 
@@ -427,6 +447,77 @@ async function applyInteractively(
   } else {
     log.dim('--dry-run: manifest left untouched.');
   }
+}
+
+/**
+ * Non-interactive batch counterpart to `applyInteractively`. For each
+ * `modified` entry, hash the user's current content and record THAT as the
+ * new baseline (sha256 = current content, modified: false). No project
+ * files are touched. `missing` and `ejected` entries are left as-is.
+ *
+ * This is the "First-Flint-onboarding" close-out: after `upgrade --check`
+ * backfills a manifest with sentinel hashes for every existing file,
+ * `upgrade --accept-current` flips those sentinels to real content hashes
+ * in one shot — so the project lands in a clean `unmodified` state until
+ * the user actually edits something.
+ *
+ * Returns counts for the JSON envelope. Always writes the manifest unless
+ * there's nothing to flip.
+ */
+function acceptCurrentAsBaseline(
+  projectRoot: string,
+  manifest: Manifest,
+  classified: ClassifiedFile[],
+  flintVersion: string,
+): { accepted: number; untouched: number } {
+  let accepted = 0;
+  let untouched = 0;
+
+  log.heading('Accepting current content as the new manifest baseline.');
+  log.dim('  No files will be written — only flint.manifest.json updates.');
+  log.blank();
+
+  for (const c of classified) {
+    if (c.state.kind !== 'modified') {
+      untouched += 1;
+      continue;
+    }
+    const abs = join(projectRoot, c.relPath);
+    if (!existsSync(abs)) {
+      // Defensive: classifier said modified, file vanished between calls.
+      // Treat as untouched — `upgrade --check` will reclassify next run.
+      untouched += 1;
+      continue;
+    }
+    const userContent = readFileSync(abs, 'utf8');
+    manifest.files[c.relPath] = {
+      ...c.state.entry,
+      sha256: sha256OfString(userContent),
+      modified: false,
+    };
+    log.ok(`Baseline locked: ${c.relPath}`);
+    accepted += 1;
+  }
+
+  log.blank();
+  log.heading('Accept-current summary');
+  log.info(`  accepted:   ${accepted}`);
+  log.info(`  untouched:  ${untouched}`);
+
+  if (accepted > 0) {
+    recordHistory(manifest, {
+      command: 'accept-current',
+      flintVersion,
+      at: new Date().toISOString(),
+      files: accepted,
+    });
+    writeManifest(projectRoot, manifest);
+    log.ok('Manifest updated.');
+  } else {
+    log.dim('No modified entries — manifest left untouched.');
+  }
+
+  return { accepted, untouched };
 }
 
 /**

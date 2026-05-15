@@ -250,13 +250,24 @@ program
   .option('--diff', 'print unified diffs for every modified file')
   .option('--apply', 'interactively walk each drifted file with a 3-way merge')
   .option('--dry-run', 'walk apply-mode but write nothing')
+  .option(
+    '--accept-current',
+    'non-interactive: record current file contents as the new manifest baseline (no writes to project files)',
+  )
   .action(
-    async (opts: { check?: boolean; diff?: boolean; apply?: boolean; dryRun?: boolean }) => {
+    async (opts: {
+      check?: boolean;
+      diff?: boolean;
+      apply?: boolean;
+      dryRun?: boolean;
+      acceptCurrent?: boolean;
+    }) => {
       await runUpgrade({
         check: opts.check === true,
         diff: opts.diff === true,
         apply: opts.apply === true,
         dryRun: opts.dryRun === true,
+        acceptCurrent: opts.acceptCurrent === true,
         json: globalJson(),
       });
     },

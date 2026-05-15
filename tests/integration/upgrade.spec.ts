@@ -119,4 +119,77 @@ describe('flint upgrade (integration)', () => {
     const manifestAfter = readRepoFile(repo, 'flint.manifest.json');
     expect(manifestAfter).toBe(manifestBefore);
   });
+
+  // ─── --accept-current (First-Flint-onboarding finisher) ───────────────────
+  it('--accept-current after backfill locks in current content as baseline', () => {
+    // Simulate the First-Flint-onboarding scenario: an existing app gets a
+    // manifest via backfill (all entries sentinel-modified), then
+    // --accept-current flips every sentinel to the real content hash.
+    rmSync(join(repo.dir, 'flint.manifest.json'), { force: true });
+
+    // Step 1: backfill via --check.
+    const check1 = runFlint(['upgrade', '--check'], { cwd: repo.dir });
+    expect(
+      check1.status,
+      `expected drift after backfill, got status=${check1.status}\nstdout:\n${check1.stdout}\nstderr:\n${check1.stderr}`,
+    ).toBe(1);
+    expect(existsSync(join(repo.dir, 'flint.manifest.json'))).toBe(true);
+
+    // Capture a sample file to verify it isn't rewritten by --accept-current.
+    const wranglerBefore = readRepoFile(repo, 'wrangler.toml');
+
+    // Step 2: accept-current.
+    const accept = runFlint(['upgrade', '--accept-current'], { cwd: repo.dir });
+    expect(
+      accept.status,
+      `accept-current failed:\nstdout:\n${accept.stdout}\nstderr:\n${accept.stderr}`,
+    ).toBe(0);
+    const combined = `${accept.stdout}\n${accept.stderr}`;
+    expect(combined).toContain('Baseline locked');
+    expect(combined).toMatch(/accepted:\s+\d+/);
+
+    // Step 3: file content must not have changed.
+    expect(readRepoFile(repo, 'wrangler.toml')).toBe(wranglerBefore);
+
+    // Step 4: subsequent --check exits 0 (no drift).
+    const check2 = runFlint(['upgrade', '--check'], { cwd: repo.dir });
+    expect(
+      check2.status,
+      `expected no drift after accept-current, got status=${check2.status}\nstdout:\n${check2.stdout}\nstderr:\n${check2.stderr}`,
+    ).toBe(0);
+    const combined2 = `${check2.stdout}\n${check2.stderr}`;
+    expect(combined2).toContain('in sync');
+    expect(combined2).toMatch(/modified:\s+0/);
+  });
+
+  it('--accept-current on a clean repo is a no-op (no modified entries)', () => {
+    const manifestBefore = readRepoFile(repo, 'flint.manifest.json');
+    const res = runFlint(['upgrade', '--accept-current'], { cwd: repo.dir });
+    expect(res.status).toBe(0);
+    const combined = `${res.stdout}\n${res.stderr}`;
+    expect(combined).toMatch(/accepted:\s+0/);
+    // No history entry should be added (manifest is byte-identical).
+    expect(readRepoFile(repo, 'flint.manifest.json')).toBe(manifestBefore);
+  });
+
+  it('--accept-current emits a structured JSON envelope with --json', () => {
+    rmSync(join(repo.dir, 'flint.manifest.json'), { force: true });
+    runFlint(['upgrade', '--check'], { cwd: repo.dir }); // backfill
+    const res = runFlint(['--json', 'upgrade', '--accept-current'], {
+      cwd: repo.dir,
+    });
+    expect(
+      res.status,
+      `json accept-current failed:\nstdout:\n${res.stdout}\nstderr:\n${res.stderr}`,
+    ).toBe(0);
+    const payload = JSON.parse(res.stdout) as {
+      command: string;
+      ok: boolean;
+      data: { mode: string; accepted: number; untouched: number };
+    };
+    expect(payload.command).toBe('upgrade');
+    expect(payload.ok).toBe(true);
+    expect(payload.data.mode).toBe('accept-current');
+    expect(payload.data.accepted).toBeGreaterThan(0);
+  });
 });
