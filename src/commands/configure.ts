@@ -85,8 +85,19 @@ export async function runConfigure(opts: ConfigureOptions): Promise<void> {
   const cwd = process.cwd();
 
   // Pre-flight
+  //
+  // The token must be PRESENT (otherwise the user has nothing to dry-run
+  // with) — but in dry-run mode we deliberately skip the network probe
+  // (`GET /user/tokens/verify`). Hitting CF during a dry-run defeats the
+  // CI / offline ergonomics the flag is there to support. Resource-config
+  // helpers below already handle list-call failures with a warning, so a
+  // fully offline dry-run produces a plan-only output (no real changes).
   const creds = await loadCredentialsOrExit(cwd);
-  await verifyTokenOrExit(creds);
+  if (opts.dryRun) {
+    log.dim('--dry-run: skipping Cloudflare token verify (no network probe).');
+  } else {
+    await verifyTokenOrExit(creds);
+  }
   warnOnOldWrangler(cwd);
 
   const doc = readWranglerToml(cwd);
