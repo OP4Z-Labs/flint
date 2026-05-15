@@ -1,6 +1,6 @@
 {
   "name": "@op4z/flint",
-  "version": "0.2.0",
+  "version": "0.5.0",
   "description": "Flint — the Cloudflare Pages bootstrap CLI. Sparks the spark for Vite + React + TS apps on Cloudflare Pages.",
   "type": "module",
   "license": "MIT",

@@ -119,8 +119,8 @@ describe('flint --help surfaces (integration)', () => {
   it('smoke 11: flint --version prints the package.json version', () => {
     const res = runFlint(['--version']);
     expect(res.status).toBe(0);
-    // package.json was bumped to 0.2.0 in the cleanup pass (commit ef39641).
-    expect(res.stdout.trim()).toBe('0.2.0');
+    // Version bumped per milestone: 0.1.0 → 0.2.0 (cleanup) → 0.5.0 (v0.5).
+    expect(res.stdout.trim()).toBe('0.5.0');
   });
 
   it('flint with no args prints help text and exits non-zero (commander default)', () => {

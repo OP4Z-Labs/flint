@@ -9,7 +9,7 @@ dashboard, hope CSP is right" with one command per step. It is opinionated
 on stack (Vite + React + TS + Wrangler v4) and unopinionated on everything
 else.
 
-**Status:** v0.2 (resource provisioning). See _Roadmap_ for what's coming.
+**Status:** v0.5 (create-app + deploy). See _Roadmap_ for what's coming.
 
 ---
 
@@ -37,7 +37,7 @@ After linking, the `flint` binary is on your `$PATH`. To uninstall, run
 
 ## What Flint ships today
 
-Four surfaces, all self-contained:
+Six surfaces, all self-contained:
 
 1. **`flint auth ...`** — persistent Cloudflare API token management. Run
    once, and every Wrangler invocation (including CI) reads
@@ -47,23 +47,30 @@ Four surfaces, all self-contained:
    `_headers`, `_routes.json`, `functions/_shared/*`, CI workflow,
    `.dev.vars.example`, `package.json` scripts) into an existing Vite +
    React + TS repo.
-3. **`flint configure`** _(v0.2)_ — read your `wrangler.toml`, walk through
+3. **`flint create-app <name>`** _(v0.5)_ — bootstrap a fresh Vite +
+   React + TS app with all Cloudflare Pages wiring pre-baked. Parallel
+   to `npm create vite@latest`: one command, full project tree, all
+   three template variants supported.
+4. **`flint configure`** _(v0.2)_ — read your `wrangler.toml`, walk through
    provisioning every declared-but-unresolved resource (Pages project,
    KV namespaces, R2 buckets, secrets), and patch the file with the
    returned ids. Idempotent: existing resources are detected via the
    Cloudflare REST API and offered for reuse rather than re-created.
-4. **`flint add kv|r2|secret`** _(v0.2)_ — append a single new binding
+5. **`flint add kv|r2|secret`** _(v0.2)_ — append a single new binding
    block to `wrangler.toml` (or a documented stub to `.dev.vars.example`
    for secrets), then offer to run `configure` right away to provision it.
+6. **`flint deploy`** _(v0.5)_ — wrapped `wrangler pages deploy` with
+   pre-flight checks (auth doctor / lint / typecheck / vitest / build /
+   asset budget) and a deployment health-ping. `--rollback` lists +
+   selects a previous deployment to restore.
 
-### Two template variants in v0.1
+### Three template variants
 
 | Variant            | What you get                                                         | Mirrors  |
 | ------------------ | -------------------------------------------------------------------- | -------- |
+| `static-spa`       | Vite + React + TS, hardened CSP, no Functions (Portfolio-parity)     | Portfolio |
 | `pages-functions`  | Functions + 1 KV namespace + HMAC auth + rate limit                  | Chorus   |
 | `pages-fullstack`  | All of the above + R2 bucket + `vite-plugin-pwa` wiring              | Blaze    |
-
-`static-spa` (Portfolio-style) is reserved for v0.5.
 
 ---
 
@@ -95,7 +102,33 @@ flint auth doctor   # probe each of the 7 required scopes individually
 flint auth rotate   # replace the stored token (manual revoke reminder)
 ```
 
-### 2. Scaffold a Pages app
+### 2a. Scaffold a NEW app from scratch (v0.5)
+
+```bash
+flint create-app my-app --variant static-spa
+cd my-app
+flint configure          # provision Pages project on Cloudflare
+flint deploy             # build + pre-flight + push
+```
+
+`flint create-app` builds the full Vite + React + TS project tree
+(skeleton + variant in one composition step), runs `git init` and
+`<pm> install` by default, and prints a "what's next" summary.
+
+**Flags:**
+
+```text
+flint create-app <name>  [--variant <static-spa|pages-functions|pages-fullstack>]
+                         [--pm <npm|pnpm|bun>]    (auto-detected via npm_config_user_agent)
+                         [--cf-project <name>]    (Pages project name; default: <name>)
+                         [--no-install]           (skip `<pm> install`)
+                         [--no-git]               (skip `git init`)
+                         [--provision]            (run `flint configure` immediately after)
+                         [--template <git+url>]   (reserved for v0.9)
+                         [-y, --yes]
+```
+
+### 2b. Scaffold INTO an existing repo
 
 Inside a fresh `npm create vite@latest`-style repo:
 
@@ -177,11 +210,65 @@ Pages (via stdin to `wrangler pages secret put`) — never to `.dev.vars`.
 Pass `--write-to-dev-vars` to ALSO hydrate the local `.dev.vars` for
 `wrangler pages dev`.
 
+### 5. Deploy with confidence (v0.5)
+
+```bash
+flint deploy                   # default: deploy main branch
+flint deploy --branch staging  # deploy a named branch
+flint deploy --preview         # deploy as a preview, branch = current git branch
+flint deploy --skip-checks     # skip lint/typecheck/vitest (still runs build)
+flint deploy --strict-budget   # fail (don't just warn) when assets exceed budget
+flint deploy --rollback        # list + select a previous deployment to restore
+```
+
+Pre-flight sequence (each step sequential; first failure halts the deploy):
+
+```
+1. flint auth doctor --quiet     verify stored token still works
+2. npm run lint                  (--skip-checks bypasses 2-4)
+3. npx tsc -b
+4. npx vitest run
+5. npm run build                 (NOT skippable — without dist/, nothing to deploy)
+6. asset budget guard            warns; --strict-budget fails
+7. wrangler pages deploy dist
+8. health-ping deployment        GET /, GET /api/health if Functions present
+9. summary                       URL, deployment id, branch, duration
+```
+
+**On health-ping failure**, Flint does **not** auto-rollback. It prints
+the rollback command for one-paste recovery. The deployment is real;
+you decide whether to restore.
+
+**Asset budget thresholds** (configurable via `flint.config.json` at
+your project root):
+
+```json
+{
+  "assetBudget": {
+    "maxBundleMB": 5,
+    "maxChunkKB": 500
+  }
+}
+```
+
+Defaults: 5 MB total `dist/` size, 500 KB gzipped per JS chunk. Both
+are tunable per project. The `flint.config.json` file is the first
+config-as-file surface Flint introduces — broader config story
+deferred to v0.9.
+
 ### Flags
 
 ```text
 flint auth init    [--no-browser] [--no-clipboard]
 flint auth rotate  [--no-browser] [--no-clipboard]
+
+flint create-app <NAME>
+            [--variant <static-spa|pages-functions|pages-fullstack>]
+            [--pm <npm|pnpm|bun>]
+            [--cf-project <name>]
+            [--no-install] [--no-git] [--provision]
+            [--template <git+url>]
+            [-y, --yes]
 
 flint init  [--variant <pages-functions|pages-fullstack>]
             [--name <project>]
@@ -197,6 +284,11 @@ flint add kv     <BINDING>  [--no-provision] [--force] [-y, --yes]
 flint add r2     <BINDING>  [--no-provision] [--force] [-y, --yes]
 flint add secret <NAME>     [--description <text>] [--no-provision]
                             [--write-to-dev-vars] [-y, --yes]
+
+flint deploy [--branch <name>] [--preview]
+             [--skip-checks] [--strict-budget]
+             [--rollback]
+             [--project-name <name>]
 ```
 
 ---
@@ -231,16 +323,14 @@ Nothing reads these automatically — they're a 30-day safety net.
 
 These are deliberate omissions, queued for later milestones:
 
-- **`flint create-app <name>`** — full new-project scaffold (v0.5).
-- **`flint deploy`** — wrapped `wrangler pages deploy` with pre-flight
-  checks (v0.5).
-- **`flint upgrade`** — config drift remediation (v0.9).
+- **`flint upgrade --check/--diff/--apply`** — config drift remediation (v0.9).
 - **`flint add pwa | auth | rate-limit`** — additive feature scaffolds
-  (v0.9; the resource-provisioning `add` subcommands ship in v0.2).
-- **`static-spa` variant** — Portfolio-style scaffold (v0.5).
-- **Custom domain attachment** (`wrangler pages domain` wrapping) — v0.5+.
+  (v0.9; the resource-provisioning `add` subcommands shipped in v0.2).
+- **`flint create-app --template <git+url>`** — flag is stubbed (warns
+  + ignores) in v0.5. Real custom-template support lands v0.9 or later.
+- **Custom domain attachment** (`wrangler pages domain` wrapping) — deferred.
 - **Telemetry** — even opt-in is deferred to v0.9.
-- **OS keychain token storage** — post-v0.1.
+- **OS keychain token storage** — post-v0.5.
 - **npm publish** — v1.0.
 
 ### Wrangler version expectations
@@ -259,13 +349,18 @@ The first stable Flint release will not raise the floor.
 
 ## Roadmap (high level)
 
-| Milestone   | Adds                                                                 |
-| ----------- | -------------------------------------------------------------------- |
-| v0.1.0      | `auth init/status/doctor/rotate`, `init` for two variants            |
-| v0.2.0 ✨   | `configure`, `add kv`, `add r2`, `add secret`                        |
-| v0.5.0      | `create-app`, `static-spa` variant, `deploy` wrapper                 |
-| v0.9.0      | `upgrade`, `add pwa`, `add auth`, asset-budget pre-flight, telemetry |
-| v1.0.0      | Public npm publish, docs site, Bun + pnpm parity                     |
+| Milestone   | Adds                                                                            |
+| ----------- | ------------------------------------------------------------------------------- |
+| v0.1.0      | `auth init/status/doctor/rotate`, `init` for two variants                       |
+| v0.2.0      | `configure`, `add kv`, `add r2`, `add secret`                                   |
+| v0.5.0 ✨   | `create-app` (all 3 variants), `static-spa` template, `deploy` (with rollback)  |
+| v0.9.0      | `upgrade --check/--diff/--apply`, `add pwa/auth/rate-limit`, telemetry opt-in,  |
+|             | real `--template <git+url>` support                                             |
+| v1.0.0      | Public npm publish, docs site, Bun + pnpm parity, Windows compat, three         |
+|             | reference-app rescaffolds (Blaze, Chorus, Portfolio)                            |
+
+Asset budget guard, rollback UX, and pre-flight gating shipped in v0.5
+(moved up from the v0.9 plan-doc allocation).
 
 Full plan in
 `/home/beaug/dev/TheNexusProject/docs/plans/flint-cloudflare-bootstrapper.md`.
@@ -321,8 +416,10 @@ src/
 ├── commands/
 │   ├── auth.ts                  # init / status / doctor / rotate
 │   ├── init.ts                  # scaffold inside existing repo
+│   ├── create-app.ts            # v0.5: bootstrap a NEW Vite+React+TS app
 │   ├── configure.ts             # v0.2: walk and provision CF resources
-│   └── add.ts                   # v0.2: add kv | r2 | secret
+│   ├── add.ts                   # v0.2: add kv | r2 | secret
+│   └── deploy.ts                # v0.5: pre-flight + wrangler deploy + rollback
 ├── cloudflare/
 │   ├── api.ts                   # fetch wrapper + scope probes + resource listers
 │   ├── credentials.ts           # ~/.config/flint/credentials I/O
@@ -331,28 +428,35 @@ src/
 │   ├── wrangler-runner.ts       # v0.2: spawnSync adapter over `wrangler` binary
 │   └── wrangler-toml.ts         # v0.2: in-place patcher (preserves comments)
 ├── util/
+│   ├── asset-budget.ts          # v0.5: dist/ size + per-chunk gzipped guard
 │   ├── browser.ts               # open URL cross-platform
 │   ├── clipboard.ts             # copy text cross-platform
 │   ├── logger.ts                # tiny ANSI logger
+│   ├── package-manager.ts       # v0.5: npm/pnpm/bun detection from UA string
 │   ├── paths.ts                 # XDG config paths
 │   ├── template.ts              # {{var}} renderer
 │   └── version.ts               # read package.json at runtime
 templates/
+├── _skeleton/                   # v0.5: shared Vite+React+TS skeleton for create-app
+├── static-spa/                  # v0.5: Portfolio-parity scaffold (no Functions)
 ├── pages-functions/             # Chorus-style scaffold
 └── pages-fullstack/             # Blaze-style scaffold
 tests/
 ├── cloudflare/                  # api + credentials + dev-vars + wrangler-toml/runner tests
-├── commands/                    # v0.2: add + configure-helpers tests
-├── integration/                 # v0.2.1: spawned-bin specs (one per smoke surface)
+├── commands/                    # add + configure-helpers + deploy-helpers tests
+├── integration/                 # spawned-bin specs (one per surface)
 │   ├── _harness.ts              # spawnSync wrapper + tmp-repo helpers
 │   ├── README.md                # smoke-step mapping + manual-only step 10
 │   ├── init.spec.ts             # smoke 1-4
 │   ├── add.spec.ts              # smoke 5-7
 │   ├── configure.spec.ts        # smoke 8
 │   ├── wrangler-patch.spec.ts   # smoke 9
-│   └── help.spec.ts             # smoke 11
-├── templates/                   # smoke test renders every .tmpl file
-├── util/                        # template engine tests
+│   ├── help.spec.ts             # smoke 11
+│   ├── create-app.spec.ts       # v0.5: all 3 variants, pm + cf-project + summary
+│   ├── static-spa.spec.ts       # v0.5: Portfolio-parity contract
+│   └── deploy.spec.ts           # v0.5: pre-flight + rollback failure paths
+├── templates/                   # renders every .tmpl file against canonical vars
+├── util/                        # template + package-manager + asset-budget tests
 └── util/tmp-home.ts             # FLINT_CONFIG_HOME sandbox helper
 ```
 
