@@ -301,9 +301,11 @@ export interface BackfillOptions {
 
 /**
  * Build a synthetic manifest for a project scaffolded by an older Flint
- * (v0.5 and earlier — pre-manifest). Every backfilled entry is flagged
- * `modified: true` so the upgrade flow conservatively treats them all as
- * "user has changed this" and never auto-overwrites.
+ * (v0.5 and earlier — pre-manifest). Every backfilled entry is recorded with
+ * a sentinel sha256 (`0…0` — sha of an empty string is never our content)
+ * so the classifier reliably reports `modified` for every entry. This is
+ * the conservative default — we don't know what version the user is on,
+ * so we treat everything as "user owns it" until upgrade resolves.
  */
 export function backfillManifest(
   projectRoot: string,
@@ -314,13 +316,17 @@ export function backfillManifest(
     variant: opts.variant,
     vars: opts.vars,
   });
+  // Sentinel value distinguishes "backfilled, never matched a template" from
+  // "actually authored by Flint at some version." classifyFile will always
+  // see drift against this sentinel until a real upgrade --apply runs.
+  const SENTINEL_SHA = '0'.repeat(64);
   for (const rel of opts.candidatePaths) {
     const sha = sha256OfFile(join(projectRoot, rel));
     if (sha === null) continue;
     manifest.files[rel] = {
       templateVersion: '0.0.0-backfill',
       templateSource: opts.templateSources[rel] ?? rel,
-      sha256: sha,
+      sha256: SENTINEL_SHA,
       modified: true,
       ejected: false,
     };

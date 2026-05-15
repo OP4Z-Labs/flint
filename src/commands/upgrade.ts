@@ -85,6 +85,10 @@ export async function runUpgrade(opts: UpgradeOptions): Promise<void> {
       process.exitCode = 1;
       return;
     }
+    // Persist the backfilled manifest immediately so subsequent runs find it.
+    // This is safe — backfilled entries are flagged modified, so we never
+    // silently overwrite anything based on them.
+    writeManifest(projectRoot, manifest);
     log.ok(`Backfilled flint.manifest.json with ${Object.keys(manifest.files).length} entries.`);
     log.blank();
   }

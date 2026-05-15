@@ -10,14 +10,17 @@
 // registering a new sub-command — the dispatch layer is open.
 
 import { Command } from 'commander';
-import { authInit, authStatus, authDoctor, authRotate } from './commands/auth.js';
+import { authInit, authStatus, authDoctor, authRotate, authPurge } from './commands/auth.js';
 import { runInit } from './commands/init.js';
 import { runConfigure } from './commands/configure.js';
 import { runAddKv, runAddR2, runAddSecret } from './commands/add.js';
+import { runAddPwa, runAddAuth, runAddRateLimit } from './commands/add-features.js';
 import { runCreateApp } from './commands/create-app.js';
 import { runDeploy } from './commands/deploy.js';
 import { runUpgrade } from './commands/upgrade.js';
+import { runConfig } from './commands/config.js';
 import { readPackageVersion } from './util/version.js';
+import { emitEvent, ensureTelemetryConsent } from './util/telemetry.js';
 
 const program = new Command();
 
@@ -36,9 +39,16 @@ auth
   .description('walk through Cloudflare API token creation, validate, and store')
   .option('--no-browser', 'do not attempt to open the dashboard in a browser')
   .option('--no-clipboard', 'do not copy the scope list to the clipboard')
-  .action(async (opts: { browser: boolean; clipboard: boolean }) => {
-    await authInit({ openBrowser: opts.browser, useClipboard: opts.clipboard });
-  });
+  .option('--keychain', 'also store credentials in the OS keychain (opt-in)')
+  .action(
+    async (opts: { browser: boolean; clipboard: boolean; keychain?: boolean }) => {
+      await authInit({
+        openBrowser: opts.browser,
+        useClipboard: opts.clipboard,
+        useKeychain: opts.keychain === true,
+      });
+    },
+  );
 
 auth
   .command('status')
@@ -59,8 +69,27 @@ auth
   .description('walk through replacing the stored token (manual revoke reminder)')
   .option('--no-browser', 'do not attempt to open the dashboard in a browser')
   .option('--no-clipboard', 'do not copy the scope list to the clipboard')
-  .action(async (opts: { browser: boolean; clipboard: boolean }) => {
-    await authRotate({ openBrowser: opts.browser, useClipboard: opts.clipboard });
+  .option('--keychain', 'also store the rotated credentials in the OS keychain')
+  .action(
+    async (opts: { browser: boolean; clipboard: boolean; keychain?: boolean }) => {
+      await authRotate({
+        openBrowser: opts.browser,
+        useClipboard: opts.clipboard,
+        useKeychain: opts.keychain === true,
+      });
+    },
+  );
+
+auth
+  .command('purge')
+  .description('wipe local Cloudflare credentials + reminder to revoke in dashboard')
+  .option('-y, --yes', 'do not prompt for confirmation')
+  .option('--include-archive', 'also wipe ~/.config/flint/credentials.rotated/')
+  .action(async (opts: { yes?: boolean; includeArchive?: boolean }) => {
+    await authPurge({
+      yes: opts.yes === true,
+      includeArchive: opts.includeArchive === true,
+    });
   });
 
 // ─── init ──────────────────────────────────────────────────────────────────
@@ -188,6 +217,16 @@ program
     },
   );
 
+// ─── config (v0.9) ─────────────────────────────────────────────────────────
+program
+  .command('config')
+  .description('view or change Flint global preferences (telemetry, etc.)')
+  .option('--telemetry <on|off>', 'enable or disable anonymous usage stats')
+  .option('--show', 'print current settings without changing anything')
+  .action(async (opts: { telemetry?: string; show?: boolean }) => {
+    await runConfig({ telemetry: opts.telemetry, show: opts.show === true });
+  });
+
 // ─── configure (v0.2) ──────────────────────────────────────────────────────
 program
   .command('configure')
@@ -260,6 +299,34 @@ add
     },
   );
 
+// ─── add pwa | auth | rate-limit (v0.9) ────────────────────────────────────
+add
+  .command('pwa')
+  .description('install vite-plugin-pwa + workbox-window and patch vite.config.ts')
+  .option('--force', 'overwrite an existing vite.config.ts patch')
+  .option('-y, --yes', 'accept defaults; never prompt')
+  .action(async (opts: { force?: boolean; yes?: boolean }) => {
+    await runAddPwa({ force: opts.force === true, yes: opts.yes === true });
+  });
+
+add
+  .command('auth')
+  .description('drop the HMAC cookie auth pattern into functions/_shared/auth.ts')
+  .option('--force', 'overwrite an existing functions/_shared/auth.ts')
+  .option('-y, --yes', 'accept defaults; never prompt')
+  .action(async (opts: { force?: boolean; yes?: boolean }) => {
+    await runAddAuth({ force: opts.force === true, yes: opts.yes === true });
+  });
+
+add
+  .command('rate-limit')
+  .description('drop the sliding-window KV-bucket rate limiter into functions/_shared/ratelimit.ts')
+  .option('--force', 'overwrite an existing functions/_shared/ratelimit.ts')
+  .option('-y, --yes', 'accept defaults; never prompt')
+  .action(async (opts: { force?: boolean; yes?: boolean }) => {
+    await runAddRateLimit({ force: opts.force === true, yes: opts.yes === true });
+  });
+
 add
   .command('secret <name>')
   .description('document a new secret in .dev.vars.example and (optionally) push it to Pages')
@@ -290,13 +357,46 @@ add
     },
   );
 
-// All errors should bubble up as a non-zero exit. Inquirer's ExitPromptError
-// (raised on Ctrl-C) gets soft-handled so the terminal isn't left with a
-// stack trace for a user-initiated cancel.
-program.parseAsync(process.argv).catch((err: unknown) => {
+// Telemetry: first-run consent prompt happens before dispatch unless we're
+// in a "fast path" (help, version, config-only) that exits without running a
+// user command. Once dispatched, the subcommand name is what we record.
+const fastPathArgs = new Set(['-h', '--help', '-v', '--version']);
+const skipConsent =
+  process.argv.length <= 2 ||
+  fastPathArgs.has(process.argv[2] ?? '') ||
+  process.argv[2] === 'config' ||
+  // commander prints sub-help via "auth --help" etc; don't prompt then.
+  process.argv.includes('--help') ||
+  process.argv.includes('-h');
+
+async function main(): Promise<void> {
+  if (!skipConsent) {
+    await ensureTelemetryConsent();
+  }
+  // Emit a telemetry event for the top-level command name (no args). This is
+  // intentionally fire-and-forget. Errors are swallowed inside emitEvent.
+  const top = process.argv[2];
+  if (top && !top.startsWith('-')) {
+    emitEvent({ event: top });
+  }
+  await program.parseAsync(process.argv);
+}
+
+main().catch((err: unknown) => {
   if (err && typeof err === 'object' && 'name' in err && err.name === 'ExitPromptError') {
     console.error('\nCancelled.');
     process.exit(130);
+  }
+  // Emit error event for the failing command (errorType only, never message).
+  const top = process.argv[2];
+  const errType =
+    err && typeof err === 'object' && 'code' in err && typeof (err as { code: unknown }).code === 'string'
+      ? (err as { code: string }).code
+      : err instanceof Error
+        ? err.name
+        : 'Unknown';
+  if (top && !top.startsWith('-')) {
+    emitEvent({ event: top, errorType: errType });
   }
   if (err instanceof Error) {
     console.error(`\nflint: ${err.message}`);

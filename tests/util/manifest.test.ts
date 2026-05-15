@@ -2,7 +2,7 @@
 // for v1.0's rescaffold work — these tests lock the wire format.
 
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
-import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import {
@@ -269,10 +269,27 @@ describe('backfillManifest', () => {
     expect(m.files['wrangler.toml']).toBeDefined();
     expect(m.files['wrangler.toml']!.modified).toBe(true);
     expect(m.files['wrangler.toml']!.templateVersion).toBe('0.0.0-backfill');
+    // Backfilled sha is the sentinel value, NOT the current file's sha.
+    // This way classifyFile reliably reports "modified" for every entry
+    // until an explicit `upgrade --apply` reconciles them.
+    expect(m.files['wrangler.toml']!.sha256).toBe('0'.repeat(64));
     expect(m.files['.gitignore']).toBeDefined();
     expect(m.files['does-not-exist']).toBeUndefined();
     expect(m.vars.appName).toBe('app');
     expect(m.history[0]!.command).toBe('backfill');
+  });
+
+  it('backfilled entries always classify as modified', () => {
+    writeFileSync(join(dir, 'wrangler.toml'), 'name = "app"', 'utf8');
+    const m = backfillManifest(dir, {
+      candidatePaths: ['wrangler.toml'],
+      templateSources: { 'wrangler.toml': 'pages-fullstack/wrangler.toml.tmpl' },
+      flintVersion: TEST_FLINT_VERSION,
+      variant: 'pages-fullstack',
+      vars: { appName: 'app' },
+    });
+    const state = classifyFile(dir, 'wrangler.toml', m.files['wrangler.toml']!);
+    expect(state.kind).toBe('modified');
   });
 });
 

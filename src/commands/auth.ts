@@ -1,16 +1,18 @@
 // `flint auth` — persistent Cloudflare API token management.
 //
-// Four sub-commands, all designed for solo-dev ergonomics:
+// Five sub-commands, all designed for solo-dev ergonomics:
 //
 //   init   — four-phase guided flow (educate → browser → capture/validate → store)
 //   status — print currently stored account + token validity
 //   doctor — probe each of the seven required scopes, report pass/fail
 //   rotate — replace the stored token with a freshly created one
+//   purge  — wipe stored credentials + .dev.vars + remind user to revoke (v0.9)
 //
 // Token storage rules:
 //   - Source of truth: ~/.config/flint/credentials (mode 0600)
 //   - Per-repo cache: ./.dev.vars (gitignored, mode 0600)
 //   - Old creds archived to ~/.config/flint/credentials.rotated/<ts>.json
+//   - Optional OS-keychain backing (v0.9, opt-in via `auth init --keychain`)
 //
 // The CLI never writes a token value to anywhere outside these paths.
 // CLOUDFLARE_API_TOKEN env var is what Wrangler reads — both paths get
@@ -34,6 +36,7 @@ import {
   writeCredentials,
   type Credentials,
 } from '../cloudflare/credentials.js';
+import { existsSync as fsExistsSync, readFileSync as fsReadFileSync, rmSync, unlinkSync } from 'node:fs';
 import {
   writeDevVars,
   writeDevVarsExample,
@@ -43,13 +46,16 @@ import {
 import { copyToClipboard } from '../util/clipboard.js';
 import { openInBrowser } from '../util/browser.js';
 import { log, color } from '../util/logger.js';
-import { credentialsPath } from '../util/paths.js';
+import { credentialsPath, flintConfigDir, rotatedCredentialsDir, DEV_VARS_FILENAME } from '../util/paths.js';
+import { join } from 'node:path';
 
 const DASHBOARD_URL = 'https://dash.cloudflare.com/profile/api-tokens';
 
 export interface AuthInteractiveOptions {
   openBrowser: boolean;
   useClipboard: boolean;
+  /** Use OS keychain for credentials storage instead of plaintext .dev.vars. */
+  useKeychain?: boolean;
 }
 
 // ─── auth init ─────────────────────────────────────────────────────────────
@@ -124,8 +130,17 @@ export async function authStatus(): Promise<void> {
     return;
   }
 
+  const { getStorageMode, isKeychainAvailable } = await import('../util/keychain.js');
+  const mode = getStorageMode();
   log.heading('Cloudflare credentials');
   log.dim(`  Path:    ${credentialsPath()}`);
+  log.dim(`  Storage: ${mode}${mode === 'keychain' ? ' (OS keychain)' : ' (.dev.vars / file)'}`);
+  if (mode === 'keychain') {
+    const available = await isKeychainAvailable();
+    if (!available) {
+      log.warn('  Keychain selected but not available right now. Will fall back to file on next read.');
+    }
+  }
   log.dim(`  Account: ${creds.accountName}`);
   log.dim(`  ID:      ${creds.accountId}`);
   log.dim(`  Created: ${creds.createdAt}`);
@@ -302,8 +317,39 @@ async function runAuthFlow(
     accountName: chosen.name,
     createdAt: new Date().toISOString(),
   };
+  // Always write the JSON credentials file (cross-repo cache). Keychain is
+  // an ADDITIONAL secure backing layer; we keep the file so `wrangler` can
+  // still hydrate .dev.vars from a known location.
   writeCredentials(creds);
   log.ok(`Wrote ${credentialsPath()} (mode 0600).`);
+
+  // Optional: also stash in the OS keychain.
+  if (interactive.useKeychain) {
+    const { writeKeychainCredentials, isKeychainAvailable, setStorageMode } =
+      await import('../util/keychain.js');
+    const available = await isKeychainAvailable();
+    if (!available) {
+      log.warn(
+        'OS keychain not available on this system. Falling back to .dev.vars storage.',
+      );
+      log.dim('  Linux: install libsecret + run `gnome-keyring` or equivalent.');
+      log.dim('  macOS: should work out of the box. Try `keytar` doctor.');
+      log.dim('  Windows: should work via Credential Manager.');
+      setStorageMode('dev-vars');
+    } else {
+      const ok = await writeKeychainCredentials(creds);
+      if (ok) {
+        log.ok('Stored credentials in the OS keychain.');
+        setStorageMode('keychain');
+      } else {
+        log.warn('Keychain write failed unexpectedly. Falling back to .dev.vars.');
+        setStorageMode('dev-vars');
+      }
+    }
+  } else {
+    const { setStorageMode } = await import('../util/keychain.js');
+    setStorageMode('dev-vars');
+  }
 
   // Hydrate the current repo's .dev.vars too, when we're standing in one.
   await hydrateLocalDevVars(creds);
@@ -385,6 +431,136 @@ async function hydrateLocalDevVars(creds: Credentials): Promise<void> {
     }
     throw e;
   }
+}
+
+// ─── auth purge (v0.9) ─────────────────────────────────────────────────────
+
+export interface AuthPurgeOptions {
+  /** Skip the "are you sure?" prompt. */
+  yes?: boolean;
+  /** Also wipe the rotated-credentials archive directory. */
+  includeArchive?: boolean;
+}
+
+/**
+ * Wipe all locally-stored Cloudflare credentials and remind the user to
+ * manually revoke the token in the Cloudflare dashboard. The CLI cannot
+ * self-revoke (Cloudflare's API doesn't allow tokens to revoke themselves).
+ *
+ * Cleans up:
+ *   - ~/.config/flint/credentials                  (always)
+ *   - ~/.config/flint/credentials.rotated/         (with --include-archive)
+ *   - keychain entries  (when keychain backend is active)
+ *   - <cwd>/.dev.vars   (only if it contains CLOUDFLARE_API_TOKEN — confirms)
+ *
+ * Always prints the dashboard URL with the explicit "revoke the token there"
+ * reminder at the end. This is the safety command the user asked for in the
+ * 2026-05-14 manual smoke run.
+ */
+export async function authPurge(opts: AuthPurgeOptions = {}): Promise<void> {
+  log.heading('Flint auth purge — wipe local Cloudflare credentials');
+  log.dim('  This removes Flint\'s local copy of your Cloudflare API token.');
+  log.dim('  It does NOT revoke the token in Cloudflare — you must do that manually.');
+  log.blank();
+
+  const existing = readCredentials();
+  const credPath = credentialsPath();
+  const credExists = fsExistsSync(credPath);
+  const devVarsPath = join(process.cwd(), DEV_VARS_FILENAME);
+  const devVarsHasToken = fsExistsSync(devVarsPath)
+    ? /CLOUDFLARE_API_TOKEN\s*=/.test(fsReadFileSync(devVarsPath, 'utf8'))
+    : false;
+
+  log.info('Will wipe:');
+  if (credExists) log.info(`  ✗ ${credPath}`);
+  if (devVarsHasToken) log.info(`  ✗ ${devVarsPath}  (CLOUDFLARE_API_TOKEN present)`);
+  if (opts.includeArchive) {
+    const archive = rotatedCredentialsDir();
+    if (fsExistsSync(archive)) log.info(`  ✗ ${archive}/   (--include-archive)`);
+  }
+  if (!credExists && !devVarsHasToken) {
+    log.info('  (nothing to remove)');
+  }
+  log.blank();
+
+  if (!opts.yes) {
+    const ok = await confirm({
+      message: 'Proceed?',
+      default: false,
+    });
+    if (!ok) {
+      log.info('Cancelled.');
+      return;
+    }
+  }
+
+  let removed = 0;
+  if (credExists) {
+    try {
+      unlinkSync(credPath);
+      log.ok(`Removed ${credPath}`);
+      removed += 1;
+    } catch (e) {
+      log.err(`Failed to remove ${credPath}: ${e instanceof Error ? e.message : String(e)}`);
+    }
+  }
+  if (devVarsHasToken) {
+    // We delete the .dev.vars file outright when it has CF token. This is
+    // strict: if the user mixed other secrets into .dev.vars, those go too.
+    // Better to be loud than to leave a partial purge.
+    try {
+      unlinkSync(devVarsPath);
+      log.ok(`Removed ${devVarsPath}`);
+      removed += 1;
+    } catch (e) {
+      log.err(`Failed to remove ${devVarsPath}: ${e instanceof Error ? e.message : String(e)}`);
+    }
+  }
+  if (opts.includeArchive) {
+    const archive = rotatedCredentialsDir();
+    if (fsExistsSync(archive)) {
+      try {
+        rmSync(archive, { recursive: true, force: true });
+        log.ok(`Removed ${archive}/`);
+        removed += 1;
+      } catch (e) {
+        log.err(`Failed to remove ${archive}: ${e instanceof Error ? e.message : String(e)}`);
+      }
+    }
+  }
+
+  // Best-effort: also clear keychain entries when keychain backing is in use.
+  try {
+    const { tryClearKeychain } = await import('../util/keychain.js');
+    const cleared = await tryClearKeychain();
+    if (cleared) log.ok('Cleared OS keychain entries.');
+  } catch {
+    // Keychain not available; non-fatal.
+  }
+
+  // Also wipe the keychain hint file if present.
+  const hint = join(flintConfigDir(), 'storage-mode');
+  if (fsExistsSync(hint)) {
+    try {
+      unlinkSync(hint);
+    } catch {
+      // ignore
+    }
+  }
+
+  log.blank();
+  log.heading('Action required — revoke the OLD token in Cloudflare');
+  log.info(`Open: ${DASHBOARD_URL}`);
+  if (existing) {
+    log.info(`Look for the token created at: ${existing.createdAt}`);
+    log.info(`Owner account: ${existing.accountName} (${existing.accountId})`);
+  } else {
+    log.info('Look for any tokens you no longer use and revoke them.');
+  }
+  log.dim('Click "Roll" or "Delete" beside the token to revoke it.');
+  log.dim('Flint cannot do this for you — Cloudflare\'s API does not let tokens self-revoke.');
+  log.blank();
+  log.ok(`Purge complete (${removed} item(s) removed locally).`);
 }
 
 // `input` is imported for typing parity if a future flow needs free text;

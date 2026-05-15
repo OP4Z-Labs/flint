@@ -38,11 +38,13 @@ const HELP_CASES: ReadonlyArray<HelpCase> = [
       'init',
       'configure',
       'add',
+      'upgrade',
+      'config',
     ],
   },
   {
     args: ['auth', '--help'],
-    mustInclude: ['Usage: flint auth', 'init', 'status', 'doctor', 'rotate'],
+    mustInclude: ['Usage: flint auth', 'init', 'status', 'doctor', 'rotate', 'purge'],
   },
   {
     args: ['init', '--help'],
@@ -69,7 +71,15 @@ const HELP_CASES: ReadonlyArray<HelpCase> = [
   },
   {
     args: ['add', '--help'],
-    mustInclude: ['Usage: flint add', 'kv', 'r2', 'secret'],
+    mustInclude: ['Usage: flint add', 'kv', 'r2', 'secret', 'pwa', 'auth', 'rate-limit'],
+  },
+  {
+    args: ['upgrade', '--help'],
+    mustInclude: ['Usage: flint upgrade', '--check', '--diff', '--apply', '--dry-run'],
+  },
+  {
+    args: ['config', '--help'],
+    mustInclude: ['Usage: flint config', '--telemetry'],
   },
   {
     args: ['add', 'kv', '--help'],
@@ -119,8 +129,8 @@ describe('flint --help surfaces (integration)', () => {
   it('smoke 11: flint --version prints the package.json version', () => {
     const res = runFlint(['--version']);
     expect(res.status).toBe(0);
-    // Version bumped per milestone: 0.1.0 → 0.2.0 (cleanup) → 0.5.0 (v0.5).
-    expect(res.stdout.trim()).toBe('0.5.0');
+    // Version bumped per milestone: 0.1.0 → 0.2.0 (cleanup) → 0.5.0 (v0.5) → 0.9.0 (v0.9).
+    expect(res.stdout.trim()).toBe('0.9.0');
   });
 
   it('flint with no args prints help text and exits non-zero (commander default)', () => {

@@ -9,7 +9,7 @@ dashboard, hope CSP is right" with one command per step. It is opinionated
 on stack (Vite + React + TS + Wrangler v4) and unopinionated on everything
 else.
 
-**Status:** v0.5 (create-app + deploy). See _Roadmap_ for what's coming.
+**Status:** v0.9 (upgrade + add subcommands + telemetry first ship). See _Roadmap_ for what's coming.
 
 ---
 
@@ -37,12 +37,14 @@ After linking, the `flint` binary is on your `$PATH`. To uninstall, run
 
 ## What Flint ships today
 
-Six surfaces, all self-contained:
+Eight surfaces, all self-contained:
 
 1. **`flint auth ...`** — persistent Cloudflare API token management. Run
    once, and every Wrangler invocation (including CI) reads
    `CLOUDFLARE_API_TOKEN` from `.dev.vars` natively. No more
-   `wrangler login` sessions that expire mid-week.
+   `wrangler login` sessions that expire mid-week. v0.9 adds `auth purge`
+   (clean-exit reset) and an opt-in `--keychain` flag for OS-keychain
+   backing on macOS / Windows / Linux-with-libsecret.
 2. **`flint init`** — scaffold Cloudflare Pages config (`wrangler.toml`,
    `_headers`, `_routes.json`, `functions/_shared/*`, CI workflow,
    `.dev.vars.example`, `package.json` scripts) into an existing Vite +
@@ -50,7 +52,9 @@ Six surfaces, all self-contained:
 3. **`flint create-app <name>`** _(v0.5)_ — bootstrap a fresh Vite +
    React + TS app with all Cloudflare Pages wiring pre-baked. Parallel
    to `npm create vite@latest`: one command, full project tree, all
-   three template variants supported.
+   three template variants supported. v0.9 adds real
+   `--template git+<url>` support: shallow-clone a custom template repo
+   (with optional `#ref` and `/subdir`) as the starting scaffold.
 4. **`flint configure`** _(v0.2)_ — read your `wrangler.toml`, walk through
    provisioning every declared-but-unresolved resource (Pages project,
    KV namespaces, R2 buckets, secrets), and patch the file with the
@@ -59,10 +63,26 @@ Six surfaces, all self-contained:
 5. **`flint add kv|r2|secret`** _(v0.2)_ — append a single new binding
    block to `wrangler.toml` (or a documented stub to `.dev.vars.example`
    for secrets), then offer to run `configure` right away to provision it.
-6. **`flint deploy`** _(v0.5)_ — wrapped `wrangler pages deploy` with
+6. **`flint add pwa|auth|rate-limit`** _(v0.9)_ — additive feature scaffolds.
+   `add pwa` installs `vite-plugin-pwa` + `workbox-window` and patches
+   `vite.config.ts`. `add auth` drops the HMAC cookie auth pattern into
+   `functions/_shared/auth.ts` and stubs `ADMIN_PASSWORD` +
+   `COOKIE_SECRET`. `add rate-limit` drops the sliding-window KV-bucket
+   pattern; auto-prompts to add a KV binding if one isn't declared yet.
+7. **`flint deploy`** _(v0.5)_ — wrapped `wrangler pages deploy` with
    pre-flight checks (auth doctor / lint / typecheck / vitest / build /
    asset budget) and a deployment health-ping. `--rollback` lists +
    selects a previous deployment to restore.
+8. **`flint upgrade`** _(v0.9)_ — config drift remediation. Every file
+   Flint generates is tracked in a `flint.manifest.json` with templateSource,
+   templateVersion, and sha256. `flint upgrade --check` lists which files
+   are unmodified / modified / ejected / missing relative to the bundled
+   templates. `flint upgrade --diff` prints unified diffs for everything
+   modified. `flint upgrade --apply` walks each drifted file with an
+   interactive 3-way merge (keep / take-new / merge-in-$EDITOR / eject).
+   Projects scaffolded by older Flint versions are auto-backfilled into
+   the manifest format on first upgrade — no data loss, conservative
+   defaults.
 
 ### Three template variants
 
@@ -321,17 +341,19 @@ Nothing reads these automatically — they're a 30-day safety net.
 
 ## Current limitations (explicitly out of scope)
 
-These are deliberate omissions, queued for later milestones:
+These are deliberate omissions, queued for v1.0:
 
-- **`flint upgrade --check/--diff/--apply`** — config drift remediation (v0.9).
-- **`flint add pwa | auth | rate-limit`** — additive feature scaffolds
-  (v0.9; the resource-provisioning `add` subcommands shipped in v0.2).
-- **`flint create-app --template <git+url>`** — flag is stubbed (warns
-  + ignores) in v0.5. Real custom-template support lands v0.9 or later.
-- **Custom domain attachment** (`wrangler pages domain` wrapping) — deferred.
-- **Telemetry** — even opt-in is deferred to v0.9.
-- **OS keychain token storage** — post-v0.5.
+- **Custom domain attachment** (`wrangler pages domain` wrapping) — deferred to v1.0.
+- **Real telemetry endpoint** — v0.9 emits to a local log file only.
+  v1.0 will wire to a chosen analytics backend (PostHog / Plausible Events /
+  custom worker — undecided).
+- **`@op4z/edge-content` runtime extraction** — Flint vendors the
+  `functions/_shared/` patterns verbatim. The runtime library extraction
+  happens after Blaze, Chorus, and Portfolio all run on Flint (the
+  "three consumers" bar from the package-extraction plan).
 - **npm publish** — v1.0.
+- **Windows compatibility** — POSIX-only assumptions in some test harnesses;
+  the runtime code paths are cross-platform but unverified on Windows.
 
 ### Wrangler version expectations
 
@@ -353,14 +375,65 @@ The first stable Flint release will not raise the floor.
 | ----------- | ------------------------------------------------------------------------------- |
 | v0.1.0      | `auth init/status/doctor/rotate`, `init` for two variants                       |
 | v0.2.0      | `configure`, `add kv`, `add r2`, `add secret`                                   |
-| v0.5.0 ✨   | `create-app` (all 3 variants), `static-spa` template, `deploy` (with rollback)  |
-| v0.9.0      | `upgrade --check/--diff/--apply`, `add pwa/auth/rate-limit`, telemetry opt-in,  |
-|             | real `--template <git+url>` support                                             |
+| v0.5.0      | `create-app` (all 3 variants), `static-spa` template, `deploy` (with rollback)  |
+| v0.9.0 ✨   | `upgrade --check/--diff/--apply` + manifest, `add pwa/auth/rate-limit`,         |
+|             | `auth purge`, `auth init --keychain`, real `--template <git+url>`,              |
+|             | telemetry first-ship (opt-in, local log only)                                   |
 | v1.0.0      | Public npm publish, docs site, Bun + pnpm parity, Windows compat, three         |
-|             | reference-app rescaffolds (Blaze, Chorus, Portfolio)                            |
+|             | reference-app rescaffolds (Blaze, Chorus, Portfolio), real telemetry endpoint   |
 
 Asset budget guard, rollback UX, and pre-flight gating shipped in v0.5
 (moved up from the v0.9 plan-doc allocation).
+
+### Manifest schema (load-bearing for v1.0)
+
+Every file Flint generates is recorded in `flint.manifest.json` at the
+project root. The schema is locked at v1 and forms the contract v1.0's
+Blaze/Chorus/Portfolio rescaffold work will read from:
+
+```jsonc
+{
+  "$schema":     "https://flint.op4z.dev/manifest.schema.v1.json",
+  "version":     1,
+  "flintVersion": "0.9.0",
+  "createdAt":   "...",
+  "updatedAt":   "...",
+  "variant":     "pages-fullstack",
+  "vars":        { "appName": "myapp", ... },     // re-render args
+  "history":     [{ "command": "init", "files": 14, ... }],
+  "files": {
+    "wrangler.toml": {
+      "templateVersion": "0.9.0",
+      "templateSource":  "pages-fullstack/wrangler.toml.tmpl",
+      "sha256":          "<hex>",
+      "modified":        false,
+      "ejected":         false,
+    }
+  }
+}
+```
+
+### Telemetry event shape (locked, public-ish)
+
+When telemetry is enabled (opt-in via first-run prompt or
+`flint config --telemetry on`), Flint emits one JSON line per command to
+`~/.config/flint/telemetry.log`:
+
+```jsonc
+{
+  "event":        "init",            // command run, no args
+  "variant":      "pages-fullstack",  // optional, for init / create-app
+  "errorType":    "ENOENT",           // optional, error type/code only
+  "flintVersion": "0.9.0",
+  "os":           "linux",            // process.platform
+  "node":         "20",                // major only
+  "ts":           "..."                // ISO 8601
+}
+```
+
+Explicitly NOT collected: project paths, command args, token info, user
+identifiers, error messages. v0.9 ships to a local log only; v1.0 will
+ship to a remote endpoint with the same wire format.
 
 Full plan in
 `/home/beaug/dev/TheNexusProject/docs/plans/flint-cloudflare-bootstrapper.md`.
