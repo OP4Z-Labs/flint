@@ -309,7 +309,10 @@ describe('flint create-app (integration)', () => {
     expect(res.stdout).toContain('flint deploy');
   });
 
-  it('--template stub: prints a warning and continues scaffolding', () => {
+  it('--template with unresolvable URL fails fast with a clean error message', () => {
+    // v0.9 makes `--template` real: it shells out to `git clone`. We test
+    // the error path with an obviously-nonexistent URL so we don't depend
+    // on network reachability (any git clone will fail predictably).
     const res = runFlint(
       [
         'create-app',
@@ -317,17 +320,16 @@ describe('flint create-app (integration)', () => {
         '--variant',
         'static-spa',
         '--template',
-        'git+https://example.com/my-template.git',
+        'git+https://example.invalid.host.localhost/nope.git',
         '--no-install',
         '--no-git',
         '--yes',
       ],
       { cwd: repo.dir },
     );
-    expect(res.status).toBe(0);
-    // The warning goes through log.warn (console.warn → stderr).
+    // Should NOT exit clean — clone fails.
+    expect(res.status).not.toBe(0);
     const combined = `${res.stdout}\n${res.stderr}`;
-    expect(combined).toMatch(/--template is reserved for v0\.9/);
-    expect(existsSync(join(repo.dir, 'tplapp/wrangler.toml'))).toBe(true);
+    expect(combined).toMatch(/git clone failed/i);
   });
 });

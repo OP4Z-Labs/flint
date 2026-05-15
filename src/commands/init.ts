@@ -21,6 +21,8 @@ import { fileURLToPath } from 'node:url';
 import { renderFile, type TemplateVars } from '../util/template.js';
 import { log } from '../util/logger.js';
 import { ensureGitignored, writeDevVarsExample, type DevVarsEntry } from '../cloudflare/dev-vars.js';
+import { ManifestTracker } from '../util/manifest-tracker.js';
+import { readPackageVersion } from '../util/version.js';
 
 export type InitVariant = 'pages-functions' | 'pages-fullstack';
 
@@ -70,6 +72,14 @@ export async function runInit(opts: InitOptions): Promise<void> {
   let written = 0;
   let skipped = 0;
 
+  const flintVersion = readPackageVersion();
+  const tracker = new ManifestTracker(cwd, {
+    command: 'init',
+    flintVersion,
+    variant,
+    vars,
+  });
+
   for (const file of plan) {
     const destPath = join(cwd, file.dest);
     const exists = existsSync(destPath);
@@ -91,9 +101,16 @@ export async function runInit(opts: InitOptions): Promise<void> {
     const rendered = renderFile(file.src, vars);
     mkdirSync(dirname(destPath), { recursive: true });
     writeFileSync(destPath, rendered, 'utf8');
+    tracker.record({
+      relPath: file.dest,
+      templateSource: `${variant}/${relative(templateRoot, file.src).split(/[\\/]/).join('/')}`,
+      contents: rendered,
+    });
     log.ok(`Wrote ${file.dest}`);
     written += 1;
   }
+
+  tracker.flush();
 
   // Gitignore enforcement. We don't write `.dev.vars` here (that's the auth
   // path's job); we DO write `.dev.vars.example` and append to .gitignore so

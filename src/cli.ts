@@ -16,6 +16,7 @@ import { runConfigure } from './commands/configure.js';
 import { runAddKv, runAddR2, runAddSecret } from './commands/add.js';
 import { runCreateApp } from './commands/create-app.js';
 import { runDeploy } from './commands/deploy.js';
+import { runUpgrade } from './commands/upgrade.js';
 import { readPackageVersion } from './util/version.js';
 
 const program = new Command();
@@ -164,6 +165,25 @@ program
         rollback: opts.rollback === true,
         strictBudget: opts.strictBudget === true,
         projectName: opts.projectName,
+      });
+    },
+  );
+
+// ─── upgrade (v0.9) ────────────────────────────────────────────────────────
+program
+  .command('upgrade')
+  .description('detect and remediate drift between scaffolded files and current templates')
+  .option('--check', 'enumerate drift state per file (default if no mode given)')
+  .option('--diff', 'print unified diffs for every modified file')
+  .option('--apply', 'interactively walk each drifted file with a 3-way merge')
+  .option('--dry-run', 'walk apply-mode but write nothing')
+  .action(
+    async (opts: { check?: boolean; diff?: boolean; apply?: boolean; dryRun?: boolean }) => {
+      await runUpgrade({
+        check: opts.check === true,
+        diff: opts.diff === true,
+        apply: opts.apply === true,
+        dryRun: opts.dryRun === true,
       });
     },
   );

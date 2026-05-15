@@ -46,6 +46,9 @@ import {
   resolvePackageManager,
   type PackageManager,
 } from '../util/package-manager.js';
+import { ManifestTracker } from '../util/manifest-tracker.js';
+import { readPackageVersion } from '../util/version.js';
+import { applyTemplate } from '../util/template-url.js';
 import { runConfigure } from './configure.js';
 
 export type CreateAppVariant = 'static-spa' | 'pages-functions' | 'pages-fullstack';
@@ -102,11 +105,15 @@ export async function runCreateApp(opts: CreateAppOptions): Promise<void> {
     }
   }
 
-  // Stubbed flag — record + ignore until v0.9.
+  // --template <git+url> support (v0.9). When set, the bundled variant
+  // templates are bypassed in favor of a git clone. The variant is still
+  // recorded in the manifest (so `flint upgrade` can match against future
+  // bundled templates), but the templateSource of each file points at the
+  // git URL.
+  let parsedTemplate: ReturnType<typeof import('../util/template-url.js').parseTemplateUrl> | undefined;
   if (opts.template) {
-    log.warn(
-      `--template is reserved for v0.9 (custom git+url templates). Ignoring "${opts.template}".`,
-    );
+    const { parseTemplateUrl } = await import('../util/template-url.js');
+    parsedTemplate = parseTemplateUrl(opts.template);
   }
 
   // Resolve variant + package manager + cf project name.
@@ -136,31 +143,72 @@ export async function runCreateApp(opts: CreateAppOptions): Promise<void> {
     tokenMessage: `${cfProject.toLowerCase().replace(/[^a-z0-9]+/g, '-')}-admin-session-v1`,
   };
 
-  // Phase 1: lay down the shared skeleton (Vite + React + TS scaffold).
-  const skeletonRoot = resolveTemplatesDir('_skeleton');
-  const skeletonFiles = collectFiles(skeletonRoot);
-  let writtenSkeleton = 0;
-  for (const file of skeletonFiles) {
-    writeTemplateFile(file, target, vars);
-    writtenSkeleton += 1;
-  }
-  log.ok(`Skeleton: wrote ${writtenSkeleton} file(s).`);
+  const flintVersion = readPackageVersion();
+  const tracker = new ManifestTracker(target, {
+    command: parsedTemplate ? `create-app --template ${opts.template}` : 'create-app',
+    flintVersion,
+    variant,
+    vars,
+  });
 
-  // Phase 2: overlay the variant tree on top of the skeleton. Conflicting
-  // files (e.g. wrangler.toml) win from the variant.
-  const variantRoot = resolveTemplatesDir(variant);
-  const variantFiles = collectFiles(variantRoot);
-  let writtenVariant = 0;
-  for (const file of variantFiles) {
-    writeTemplateFile(file, target, vars);
-    writtenVariant += 1;
+  if (parsedTemplate) {
+    // External template path: clone the git URL, copy its contents verbatim,
+    // record each file into the manifest. Variable substitution is NOT applied
+    // — custom templates own their own placeholder semantics. We still write
+    // the manifest + dev.vars.example below so the project still feels like
+    // a Flint scaffold.
+    log.step(`Cloning template from ${opts.template}…`);
+    const result = applyTemplate({
+      targetDir: target,
+      url: parsedTemplate,
+      tracker,
+    });
+    log.ok(`Template: cloned ${result.filesCopied} file(s) from ${parsedTemplate.repoUrl}.`);
+  } else {
+    // Phase 1: lay down the shared skeleton (Vite + React + TS scaffold).
+    const skeletonRoot = resolveTemplatesDir('_skeleton');
+    const skeletonFiles = collectFiles(skeletonRoot);
+    let writtenSkeleton = 0;
+    for (const file of skeletonFiles) {
+      const contents = writeTemplateFile(file, target, vars);
+      tracker.record({
+        relPath: file.dest,
+        templateSource: `_skeleton/${rel(skeletonRoot, file.src)}`,
+        contents,
+      });
+      writtenSkeleton += 1;
+    }
+    log.ok(`Skeleton: wrote ${writtenSkeleton} file(s).`);
+
+    // Phase 2: overlay the variant tree on top of the skeleton. Conflicting
+    // files (e.g. wrangler.toml) win from the variant.
+    const variantRoot = resolveTemplatesDir(variant);
+    const variantFiles = collectFiles(variantRoot);
+    let writtenVariant = 0;
+    for (const file of variantFiles) {
+      const contents = writeTemplateFile(file, target, vars);
+      tracker.record({
+        relPath: file.dest,
+        templateSource: `${variant}/${rel(variantRoot, file.src)}`,
+        contents,
+      });
+      writtenVariant += 1;
+    }
+    log.ok(`Variant ${variant}: wrote ${writtenVariant} file(s).`);
   }
-  log.ok(`Variant ${variant}: wrote ${writtenVariant} file(s).`);
 
   // .dev.vars.example — programmatically generated (entries depend on variant).
-  const envEntries = devVarsEntriesForVariant(variant);
-  const examplePath = writeDevVarsExample(target, envEntries);
-  log.ok(`Wrote ${relative(target, examplePath)}`);
+  // Skip when using a custom template — the consumer-supplied repo owns its
+  // own .dev.vars.example shape.
+  if (!parsedTemplate) {
+    const envEntries = devVarsEntriesForVariant(variant);
+    const examplePath = writeDevVarsExample(target, envEntries);
+    log.ok(`Wrote ${relative(target, examplePath)}`);
+  }
+
+  // Persist the manifest with the history entry for this run.
+  tracker.flush();
+  log.ok(`Wrote flint.manifest.json (${tracker.recordCount} file(s) tracked).`);
 
   // Optional: git init.
   if (!opts.noGit) {
@@ -305,7 +353,7 @@ function collectFiles(templateRoot: string): PlannedFile[] {
   }
 }
 
-function writeTemplateFile(file: PlannedFile, target: string, vars: TemplateVars): void {
+function writeTemplateFile(file: PlannedFile, target: string, vars: TemplateVars): string {
   const destPath = join(target, file.dest);
   // Use the templating engine for .tmpl files; otherwise copy bytes verbatim
   // through readFile/writeFile (no template processing on non-tmpl files —
@@ -318,6 +366,12 @@ function writeTemplateFile(file: PlannedFile, target: string, vars: TemplateVars
   }
   mkdirSync(dirname(destPath), { recursive: true });
   writeFileSync(destPath, contents, 'utf8');
+  return contents;
+}
+
+/** Compute a POSIX-separator relative path. */
+function rel(rootAbs: string, fileAbs: string): string {
+  return fileAbs.slice(rootAbs.length + 1).split(/[\\/]/).join('/');
 }
 
 function resolveTemplatesDir(variant: string): string {
