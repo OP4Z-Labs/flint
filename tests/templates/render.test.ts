@@ -19,6 +19,7 @@ const CANONICAL_VARS = {
   compatDate: '2026-05-14',
   cookieName: 'myapp_admin',
   tokenMessage: 'myapp-admin-session-v1',
+  flintVersion: '0.9.0',
 };
 
 function findTmplFiles(dir: string): string[] {

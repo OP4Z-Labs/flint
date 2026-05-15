@@ -134,6 +134,7 @@ export async function runCreateApp(opts: CreateAppOptions): Promise<void> {
   // Make the target directory.
   mkdirSync(target, { recursive: true });
 
+  const flintVersion = readPackageVersion();
   // Template vars used in both skeleton + variant trees.
   const vars: TemplateVars = {
     appName: cfProject,
@@ -141,9 +142,9 @@ export async function runCreateApp(opts: CreateAppOptions): Promise<void> {
     compatDate: todayISODate(),
     cookieName: `${cfProject.toLowerCase().replace(/[^a-z0-9]+/g, '_')}_admin`,
     tokenMessage: `${cfProject.toLowerCase().replace(/[^a-z0-9]+/g, '-')}-admin-session-v1`,
+    flintVersion,
   };
 
-  const flintVersion = readPackageVersion();
   const tracker = new ManifestTracker(target, {
     command: parsedTemplate ? `create-app --template ${opts.template}` : 'create-app',
     flintVersion,

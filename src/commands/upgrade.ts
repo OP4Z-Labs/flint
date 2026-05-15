@@ -401,6 +401,10 @@ async function applyInteractively(
  * render with the supplied vars. Returns null if the source no longer exists
  * (template was renamed / removed in the current Flint version) or if the
  * source is a non-bundled custom URL.
+ *
+ * The CURRENT Flint version is always injected as `flintVersion` (overriding
+ * any persisted value) so generated-by header comments reflect the upgrading
+ * version, not the version that originally scaffolded the file.
  */
 function renderTemplateContent(
   templateSource: string,
@@ -416,7 +420,8 @@ function renderTemplateContent(
   if (!existsSync(abs)) return null;
   const raw = readFileSync(abs, 'utf8');
   if (templateSource.endsWith('.tmpl')) {
-    return renderString(raw, vars as TemplateVars);
+    const renderVars = { ...vars, flintVersion: readPackageVersion() };
+    return renderString(raw, renderVars as TemplateVars);
   }
   return raw;
 }
@@ -497,6 +502,7 @@ async function runBackfill(projectRoot: string): Promise<Manifest | null> {
     compatDate,
     cookieName: `${appName.toLowerCase().replace(/[^a-z0-9]+/g, '_')}_admin`,
     tokenMessage: `${appName.toLowerCase().replace(/[^a-z0-9]+/g, '-')}-admin-session-v1`,
+    flintVersion: readPackageVersion(),
   };
 
   // Walk the variant template tree for candidate file paths.

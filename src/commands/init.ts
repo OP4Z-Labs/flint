@@ -55,12 +55,14 @@ export async function runInit(opts: InitOptions): Promise<void> {
   }
 
   const templateRoot = resolveTemplatesDir(variant);
+  const flintVersionEarly = readPackageVersion();
   const vars: TemplateVars = {
     appName: projectName,
     appNameLower: projectName.toLowerCase(),
     compatDate: todayISODate(),
     cookieName: `${projectName.toLowerCase().replace(/[^a-z0-9]+/g, '_')}_admin`,
     tokenMessage: `${projectName.toLowerCase().replace(/[^a-z0-9]+/g, '-')}-admin-session-v1`,
+    flintVersion: flintVersionEarly,
   };
 
   log.heading(`Scaffolding ${variant} for "${projectName}"`);
@@ -72,7 +74,7 @@ export async function runInit(opts: InitOptions): Promise<void> {
   let written = 0;
   let skipped = 0;
 
-  const flintVersion = readPackageVersion();
+  const flintVersion = flintVersionEarly;
   const tracker = new ManifestTracker(cwd, {
     command: 'init',
     flintVersion,
