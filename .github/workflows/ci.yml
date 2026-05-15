@@ -1,0 +1,51 @@
+name: CI
+
+on:
+  pull_request:
+    branches: [main]
+  push:
+    branches: [main]
+
+# Cancel in-progress runs when a new commit is pushed to the same PR/branch.
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  validate:
+    name: Lint, typecheck, build, test
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+
+      - name: Install dependencies
+        # `prepare` runs the build, so `dist/cli.js` is in place by the
+        # time later steps run. We re-run `build` explicitly below to keep
+        # the step ordering self-documenting, but `npm ci` would build it
+        # too on its own.
+        run: npm ci
+
+      - name: Lint
+        run: npm run lint
+
+      - name: Type-check
+        run: npm run typecheck
+
+      - name: Build
+        # Integration tests spawn `dist/cli.js`. They fail with a clear
+        # "Build artifact missing" error if this step is skipped.
+        run: npm run build
+
+      - name: Test (unit + integration)
+        # `npm test` runs `vitest run`, which picks up both *.test.ts
+        # (unit) and *.spec.ts (integration) per vitest.config.ts.
+        # Integration tests rely on `dist/cli.js` being current — the
+        # build step above guarantees that.
+        run: npm test
