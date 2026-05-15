@@ -1,0 +1,23 @@
+# Cloudflare Pages response headers — managed by Flint.
+#
+# Hardened CSP from the Portfolio polish-audit. The static-spa variant has
+# no Functions and no inline scripts, so script-src locks to 'self' only.
+# Adjust the `connect-src` and `script-src` lines if you add third-party
+# APIs (Stripe, Plausible, etc.) or external SDKs.
+#
+# Keep in sync with the runtime origins the page actually loads:
+#   - Google Fonts:        fonts.googleapis.com (CSS) + fonts.gstatic.com (woff2)
+#   - PWA service worker:  same-origin
+#
+# 'unsafe-inline' on style-src is required because Tailwind v4 emits a CSS-only
+# build (no runtime injected styles), but framework-style libraries (framer-
+# motion, etc.) write inline `style` attributes for transforms — those are
+# attribute styles, not <style> tags, so 'unsafe-inline' here covers the
+# legitimate case without opening the door to arbitrary injected script.
+
+/*
+  Content-Security-Policy: default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src 'self' https://fonts.gstatic.com; img-src 'self' data:; connect-src 'self'; frame-ancestors 'none'; base-uri 'self'; form-action 'self'
+  X-Frame-Options: DENY
+  X-Content-Type-Options: nosniff
+  Referrer-Policy: strict-origin-when-cross-origin
+  Permissions-Policy: camera=(), microphone=(), geolocation=(), payment=(), usb=(), interest-cohort=()

@@ -1,0 +1,6 @@
+{
+  "version": 1,
+  "description": "static-spa: no Pages Functions; every path is a static asset or the SPA fallback. This file is included for parity with the pages-functions and pages-fullstack siblings so a future migration to Functions has an obvious place to scope inclusion.",
+  "include": [],
+  "exclude": ["/*"]
+}
