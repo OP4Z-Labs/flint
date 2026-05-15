@@ -2,8 +2,8 @@
 
 **Date:** 2026-05-14
 **Flint version:** 0.9.0
-**Source repo:** `/home/beaug/dev/blaze` (untouched, verified)
-**Working copy:** `/home/beaug/dev/_flint-test/blaze-rescaffold/`
+**Source repo:** `~/dev/blaze` (untouched, verified)
+**Working copy:** `~/dev/_flint-test/blaze-rescaffold/`
 **Source commit SHA at start:** `bc3c9951dd12b044ca53bca6991e5c10817d2eaa`
 **Source commit SHA at end:** `bc3c9951dd12b044ca53bca6991e5c10817d2eaa` (untouched)
 
@@ -97,12 +97,12 @@ Files modified by Flint: 0 (only `flint.manifest.json` added).
 
 Rescaffold completed cleanly on the most complex variant. The
 hard-invariant adherence held throughout — no writes to the source
-repo at `/home/beaug/dev/blaze`.
+repo at `~/dev/blaze`.
 
 ## Source repo verification
 
 ```
-$ cd /home/beaug/dev/blaze && git status --short
+$ cd ~/dev/blaze && git status --short
 (no output — clean working tree)
 $ git rev-parse HEAD
 bc3c9951dd12b044ca53bca6991e5c10817d2eaa

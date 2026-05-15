@@ -1,0 +1,18 @@
+# Cloudflare Pages config for the Flint docs site.
+#
+# This is a static-output Astro Starlight build. The site is deployed by the
+# repo owner at publish time — Flint itself does NOT deploy this file. The
+# canonical command is:
+#
+#   cd docs-site && npm install && npm run build && wrangler pages deploy dist
+#
+# Or, dogfooding Flint itself once docs-site has a flint.manifest.json:
+#
+#   cd docs-site && flint deploy --skip-checks
+#
+# (--skip-checks because docs-site has no tests/lint of its own; Astro's
+# `astro build` is the only check that matters.)
+
+name = "flint-docs"
+compatibility_date = "2026-05-14"
+pages_build_output_dir = "./dist"

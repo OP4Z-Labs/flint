@@ -1,0 +1,24 @@
+# Project identity and stack metadata.
+#
+# This file is the YAML companion to cadence.config.json. Tooling that
+# prefers YAML (CI configs, ops runbooks) reads from here; the cadence
+# CLI itself reads cadence.config.json. Keep them in sync.
+
+project:
+  name: "flint-docs-site"
+  short_code: "FDOC"
+  description: ""
+
+stacks:
+  - python
+  - typescript
+
+paths:
+  backend: apps/backend
+  frontend: apps/frontend
+  packages_ts: packages/typescript
+  packages_python: packages/python
+  docs: docs
+
+# Cross-reference: the task-tag prefix used in commits is FDOC-NNN.
+# Example: "fix(auth): clear expired sessions [FDOC-42]"

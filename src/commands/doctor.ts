@@ -267,7 +267,7 @@ export async function runDoctor(opts: DoctorOptions = {}): Promise<void> {
     } else if (reds === 0) {
       log.warn(`${yellows} warning(s). Flint will still work — see notes above.`);
     } else {
-      log.err(`${reds} failed check(s). Fix the items above before running other Flint commands.`);
+      log.err(`[flint] doctor: ${reds} failed check(s) — fix the items above before running other Flint commands.`);
     }
   }
 

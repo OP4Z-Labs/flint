@@ -159,11 +159,13 @@ export async function runInit(opts: InitOptions): Promise<void> {
 async function resolveVariant(raw: string | undefined, yes: boolean): Promise<InitVariant> {
   if (raw) {
     if (raw === 'static-spa') {
-      throw new Error('Variant `static-spa` is not implemented in v0.1. Targeted for v0.5.');
+      throw new Error(
+        '[flint] init: `static-spa` is supported by `flint create-app`, not `flint init` — run `flint create-app <name> --variant static-spa` for a fresh project.',
+      );
     }
     if (!SUPPORTED_VARIANTS.includes(raw as InitVariant)) {
       throw new Error(
-        `Unknown variant "${raw}". Supported in v0.1: ${SUPPORTED_VARIANTS.join(', ')}.`,
+        `[flint] init: unknown variant "${raw}" — pass --variant with one of: ${SUPPORTED_VARIANTS.join(', ')}.`,
       );
     }
     return raw as InitVariant;
@@ -221,8 +223,7 @@ async function resolveProjectName(
 function validateProjectName(name: string): void {
   if (!/^[a-z][a-z0-9-]{1,57}[a-z0-9]$/.test(name)) {
     throw new Error(
-      'Project name must start with a letter, contain only lowercase letters, digits, ' +
-        'and hyphens, be 3–58 characters, and not end with a hyphen.',
+      '[flint] init: invalid project name — Cloudflare Pages requires lowercase letters, digits, and hyphens; 3–58 chars; must start with a letter and not end with a hyphen.',
     );
   }
 }
@@ -259,7 +260,11 @@ function collectFiles(templateRoot: string, includeCI: boolean): PlannedFile[] {
   function walk(absDir: string, relDir: string): void {
     for (const entry of readdirSync(absDir)) {
       const abs = join(absDir, entry);
-      const rel = relDir ? join(relDir, entry) : entry;
+      // POSIX separators on the relative path. The manifest, glob filters
+      // (`.startsWith('.github/')`), and downstream tooling all assume `/`.
+      // On Windows, `path.join` returns `\` separators, which would silently
+      // misclassify `.github\workflows\ci.yml` against the `--no-ci` filter.
+      const rel = relDir ? `${relDir}/${entry}` : entry;
       const stat = statSync(abs);
       if (stat.isDirectory()) {
         walk(abs, rel);
@@ -281,7 +286,9 @@ function resolveTemplatesDir(variant: InitVariant): string {
   const here = dirname(fileURLToPath(import.meta.url));
   const candidate = resolve(here, '..', '..', 'templates', variant);
   if (existsSync(candidate)) return candidate;
-  throw new Error(`Templates directory not found: ${candidate}`);
+  throw new Error(
+    `[flint] init: templates directory not found at ${candidate} — your Flint install is broken; reinstall with \`npm install -g @op4z/flint\`.`,
+  );
 }
 
 function devVarsEntriesForVariant(_variant: InitVariant): DevVarsEntry[] {
@@ -327,7 +334,7 @@ async function mergeScriptsIntoPackageJson(cwd: string, projectName: string): Pr
   try {
     pkg = JSON.parse(raw) as Record<string, unknown>;
   } catch {
-    log.err('package.json is not valid JSON — skipping script merge.');
+    log.err('[flint] init: package.json is not valid JSON — fix the syntax error then re-run `flint init`. Skipping script merge for this run.');
     return;
   }
   const scripts = (pkg.scripts as Record<string, string> | undefined) ?? {};

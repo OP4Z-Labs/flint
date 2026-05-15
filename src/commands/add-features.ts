@@ -67,7 +67,7 @@ export async function runAddPwa(opts: AddPwaOptions): Promise<void> {
 
   const pkgPath = join(cwd, 'package.json');
   if (!existsSync(pkgPath)) {
-    throw new Error('package.json not found. Run from your project root.');
+    throw new Error('[flint] add: package.json not found in the current directory — cd into your project root and re-run.');
   }
   const pkg = JSON.parse(readFileSync(pkgPath, 'utf8')) as {
     dependencies?: Record<string, string>;
@@ -89,7 +89,7 @@ export async function runAddPwa(opts: AddPwaOptions): Promise<void> {
       stdio: 'inherit',
     });
     if (installRes.status !== 0) {
-      log.err(`Install failed. Run manually:  ${pm.bin} ${pm.installArgs.join(' ')} ${missing.join(' ')}`);
+      log.err(`[flint] add: install failed — run manually: ${pm.bin} ${pm.installArgs.join(' ')} ${missing.join(' ')}`);
       process.exitCode = 1;
       return;
     }
@@ -243,7 +243,7 @@ export async function runAddAuth(opts: AddAuthOptions): Promise<void> {
 
   const templateAbs = resolveTemplatePath(AUTH_TEMPLATE);
   if (!existsSync(templateAbs)) {
-    throw new Error(`Template not found: ${templateAbs}`);
+    throw new Error(`[flint] add: template not found at ${templateAbs} — your Flint install is broken; reinstall with \`npm install -g @op4z/flint\`.`);
   }
   const vars: TemplateVars = renderVarsFromManifest(cwd, 'app');
   const rendered = renderFile(templateAbs, vars);
@@ -347,7 +347,7 @@ export async function runAddRateLimit(opts: AddRateLimitOptions): Promise<void> 
 
   const templateAbs = resolveTemplatePath(RATELIMIT_TEMPLATE);
   if (!existsSync(templateAbs)) {
-    throw new Error(`Template not found: ${templateAbs}`);
+    throw new Error(`[flint] add: template not found at ${templateAbs} — your Flint install is broken; reinstall with \`npm install -g @op4z/flint\`.`);
   }
   // ratelimit.ts is not a .tmpl — copy bytes verbatim.
   const contents = readFileSync(templateAbs, 'utf8');
@@ -370,11 +370,14 @@ interface PackageManagerInfo {
 }
 
 function detectPackageManager(cwd: string): PackageManagerInfo {
-  // Lockfile sniff: pnpm-lock.yaml > bun.lockb > package-lock.json > yarn.lock
-  if (existsSync(join(cwd, 'pnpm-lock.yaml'))) return { bin: 'pnpm', installArgs: ['add', '-D'] };
-  if (existsSync(join(cwd, 'bun.lockb'))) return { bin: 'bun', installArgs: ['add', '-d'] };
-  if (existsSync(join(cwd, 'yarn.lock'))) return { bin: 'yarn', installArgs: ['add', '-D'] };
-  return { bin: 'npm', installArgs: ['install', '--save-dev'] };
+  // Lockfile sniff: pnpm-lock.yaml > bun.lockb > package-lock.json > yarn.lock.
+  // Windows: shims are `.cmd` files and Node's spawnSync without shell:true
+  // won't auto-resolve bare names, so we append the suffix explicitly.
+  const ext = process.platform === 'win32' ? '.cmd' : '';
+  if (existsSync(join(cwd, 'pnpm-lock.yaml'))) return { bin: `pnpm${ext}`, installArgs: ['add', '-D'] };
+  if (existsSync(join(cwd, 'bun.lockb'))) return { bin: `bun${ext}`, installArgs: ['add', '-d'] };
+  if (existsSync(join(cwd, 'yarn.lock'))) return { bin: `yarn${ext}`, installArgs: ['add', '-D'] };
+  return { bin: `npm${ext}`, installArgs: ['install', '--save-dev'] };
 }
 
 function resolveTemplatePath(rel: string): string {

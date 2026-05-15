@@ -214,7 +214,7 @@ export async function runAddSecret(opts: AddSecretOptions): Promise<void> {
   // Read wrangler.toml ONLY to get the project name — secrets need it.
   const doc = readWranglerToml(cwd);
   if (!doc.name) {
-    log.err('wrangler.toml has no `name` field — cannot set Pages secret without a project.');
+    log.err('[flint] add: wrangler.toml has no `name` field — set the Pages project name in wrangler.toml and retry.');
     return;
   }
 
@@ -237,7 +237,7 @@ export async function runAddSecret(opts: AddSecretOptions): Promise<void> {
     },
   );
   if (res.status !== 0) {
-    log.err(`wrangler pages secret put failed (exit ${res.status}).`);
+    log.err(`[flint] add: wrangler pages secret put exited ${res.status} — see the wrangler output above; common causes are missing scopes or a typo in the project name.`);
     log.info(res.output.trim());
     return;
   }
@@ -267,7 +267,7 @@ function normalizeBinding(raw: string): string {
 function normalizeSecretName(raw: string): string {
   const cleaned = raw.trim().toUpperCase().replace(/[^A-Z0-9_]+/g, '_');
   if (!cleaned) {
-    throw new Error('Secret name cannot be empty.');
+    throw new Error('[flint] add: secret name cannot be empty — pass `flint add secret <NAME>` with a non-empty identifier.');
   }
   return cleaned;
 }
@@ -298,8 +298,7 @@ async function hydrateDevVarsSecret(cwd: string, name: string, value: string): P
   const { writeDevVars, isDevVarsTrackedByGit } = await import('../cloudflare/dev-vars.js');
   if (isDevVarsTrackedByGit(cwd)) {
     log.err(
-      `.dev.vars is tracked by git in this repo. Refusing to write secret. ` +
-        `Run \`git rm --cached .dev.vars\` and retry.`,
+      `[flint] add: .dev.vars is tracked by git in this repo — refusing to write secret. Run \`git rm --cached .dev.vars\` and retry, then rotate any leaked credentials.`,
     );
     return;
   }

@@ -210,29 +210,32 @@ describe('resolvePackageManager', () => {
   });
 });
 
+// Windows resolves shims as `.cmd`; POSIX uses bare names.
+const X = process.platform === 'win32' ? '.cmd' : '';
+
 describe('installCommand', () => {
-  it('maps each PM to its install command', () => {
-    expect(installCommand('npm')).toEqual(['npm', ['install']]);
-    expect(installCommand('pnpm')).toEqual(['pnpm', ['install']]);
-    expect(installCommand('bun')).toEqual(['bun', ['install']]);
-    expect(installCommand('yarn')).toEqual(['yarn', ['install']]);
+  it('maps each PM to its install command (platform-resolved bin)', () => {
+    expect(installCommand('npm')).toEqual([`npm${X}`, ['install']]);
+    expect(installCommand('pnpm')).toEqual([`pnpm${X}`, ['install']]);
+    expect(installCommand('bun')).toEqual([`bun${X}`, ['install']]);
+    expect(installCommand('yarn')).toEqual([`yarn${X}`, ['install']]);
   });
 });
 
 describe('runScriptCommand', () => {
-  it('maps each PM to its run-script command', () => {
-    expect(runScriptCommand('npm', 'build')).toEqual(['npm', ['run', 'build']]);
-    expect(runScriptCommand('pnpm', 'build')).toEqual(['pnpm', ['run', 'build']]);
-    expect(runScriptCommand('bun', 'build')).toEqual(['bun', ['run', 'build']]);
-    expect(runScriptCommand('yarn', 'build')).toEqual(['yarn', ['run', 'build']]);
+  it('maps each PM to its run-script command (platform-resolved bin)', () => {
+    expect(runScriptCommand('npm', 'build')).toEqual([`npm${X}`, ['run', 'build']]);
+    expect(runScriptCommand('pnpm', 'build')).toEqual([`pnpm${X}`, ['run', 'build']]);
+    expect(runScriptCommand('bun', 'build')).toEqual([`bun${X}`, ['run', 'build']]);
+    expect(runScriptCommand('yarn', 'build')).toEqual([`yarn${X}`, ['run', 'build']]);
   });
 });
 
 describe('execCommand', () => {
-  it('maps each PM to its exec-binary form', () => {
-    expect(execCommand('npm', 'vitest', ['run'])).toEqual(['npx', ['--no-install', 'vitest', 'run']]);
-    expect(execCommand('pnpm', 'vitest', ['run'])).toEqual(['pnpm', ['exec', 'vitest', 'run']]);
-    expect(execCommand('bun', 'vitest', ['run'])).toEqual(['bunx', ['vitest', 'run']]);
-    expect(execCommand('yarn', 'vitest', ['run'])).toEqual(['yarn', ['exec', 'vitest', 'run']]);
+  it('maps each PM to its exec-binary form (platform-resolved bin)', () => {
+    expect(execCommand('npm', 'vitest', ['run'])).toEqual([`npx${X}`, ['--no-install', 'vitest', 'run']]);
+    expect(execCommand('pnpm', 'vitest', ['run'])).toEqual([`pnpm${X}`, ['exec', 'vitest', 'run']]);
+    expect(execCommand('bun', 'vitest', ['run'])).toEqual([`bunx${X}`, ['vitest', 'run']]);
+    expect(execCommand('yarn', 'vitest', ['run'])).toEqual([`yarn${X}`, ['exec', 'vitest', 'run']]);
   });
 });

@@ -51,8 +51,7 @@ const GIT_PREFIX = /^git\+/;
 export function parseTemplateUrl(input: string): ParsedTemplateUrl {
   if (!GIT_PREFIX.test(input)) {
     throw new Error(
-      `Template URL must start with "git+": got "${input}".\n` +
-        'Example: git+https://github.com/user/repo#main',
+      `[flint] template-url: "${input}" must start with "git+" — pass --template git+https://github.com/user/repo#main (the #main is the optional ref).`,
     );
   }
   let raw = input.replace(GIT_PREFIX, '');
@@ -93,7 +92,7 @@ export function parseTemplateUrl(input: string): ParsedTemplateUrl {
     }
   }
   if (raw.length === 0) {
-    throw new Error(`Template URL had no repository component: "${input}".`);
+    throw new Error(`[flint] template-url: "${input}" has no repository component — expected git+https://host/owner/repo with optional #ref/subdir.`);
   }
   return { repoUrl: raw, ref, subdirectory };
 }
@@ -134,7 +133,7 @@ export function applyTemplate(opts: ApplyTemplateOptions): ApplyTemplateResult {
     if (cloneResult.status !== 0) {
       const stderr = (cloneResult.stderr ?? '').trim() || '(no error output)';
       throw new Error(
-        `git clone failed for "${opts.url.repoUrl}"${opts.url.ref ? `#${opts.url.ref}` : ''}:\n${stderr}`,
+        `[flint] template-url: git clone failed for "${opts.url.repoUrl}"${opts.url.ref ? `#${opts.url.ref}` : ''} — check the URL/ref and your network access:\n${stderr}`,
       );
     }
 
@@ -144,7 +143,7 @@ export function applyTemplate(opts: ApplyTemplateOptions): ApplyTemplateResult {
       : scratch;
     if (!existsSync(sourceDir) || !statSync(sourceDir).isDirectory()) {
       throw new Error(
-        `Subdirectory "${opts.url.subdirectory}" not found in cloned repo.`,
+        `[flint] template-url: subdirectory "${opts.url.subdirectory}" not found in cloned repo — verify the path inside the upstream repo and re-run.`,
       );
     }
 
@@ -163,7 +162,7 @@ export function applyTemplate(opts: ApplyTemplateOptions): ApplyTemplateResult {
     // separately so we can record manifest entries.
     if (!existsSync(opts.targetDir)) {
       // Defer to caller; we expect the caller to mkdir.
-      throw new Error(`Target directory ${opts.targetDir} does not exist.`);
+      throw new Error(`[flint] template-url: target directory ${opts.targetDir} does not exist — internal error; this is a Flint bug, please file an issue.`);
     }
     let filesCopied = 0;
     walkAndCopy(sourceDir, opts.targetDir, '');

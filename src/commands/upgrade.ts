@@ -38,6 +38,7 @@ import {
 } from 'node:fs';
 import { writeFileAtomic } from '../util/atomic-write.js';
 import { spawnSync } from 'node:child_process';
+import { tmpdir } from 'node:os';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import {
@@ -96,7 +97,7 @@ export async function runUpgrade(opts: UpgradeOptions): Promise<void> {
     log.dim('  one from the current file state and flag every entry as modified.');
     manifest = await runBackfill(projectRoot);
     if (!manifest) {
-      log.err('Backfill failed — could not detect any Flint-managed files.');
+      log.err('[flint] upgrade: backfill could not detect any Flint-managed files — verify this directory is a Flint-scaffolded project (must have wrangler.toml) and retry.');
       process.exitCode = 1;
       return;
     }
@@ -564,8 +565,11 @@ interface EditorMergeArgs {
  * Returns null if the editor exited non-zero OR if the file ends up empty.
  */
 async function openEditorMerge(args: EditorMergeArgs): Promise<string | null> {
+  // `os.tmpdir()` is the cross-platform answer: honors $TMPDIR on POSIX
+  // and $TEMP/$TMP on Windows. `process.env.TMPDIR ?? '/tmp'` would always
+  // pick `/tmp` on a default Windows install.
   const tmpFile = join(
-    process.env.TMPDIR ?? '/tmp',
+    tmpdir(),
     `flint-merge-${Date.now()}-${args.relPath.replace(/[\\/]/g, '_')}`,
   );
   const banner = [
@@ -580,7 +584,14 @@ async function openEditorMerge(args: EditorMergeArgs): Promise<string | null> {
     '# Empty file = cancel.',
   ].join('\n') + '\n';
   writeFileSync(tmpFile, banner, 'utf8');
-  const editor = process.env.EDITOR ?? process.env.VISUAL ?? 'vi';
+  // EDITOR fallback chain:
+  //   1. $EDITOR (user's explicit choice)
+  //   2. $VISUAL (BSD/GNU convention)
+  //   3. `notepad` on Windows — always present and understands `\n` since
+  //      the Windows 10 May 2018 Update.
+  //   4. `vi` on POSIX — POSIX-required, present on every Unix.
+  const editorFallback = process.platform === 'win32' ? 'notepad' : 'vi';
+  const editor = process.env.EDITOR ?? process.env.VISUAL ?? editorFallback;
   const result = spawnSync(editor, [tmpFile], { stdio: 'inherit' });
   if (result.status !== 0) {
     return null;
@@ -605,7 +616,7 @@ async function runBackfill(projectRoot: string): Promise<Manifest | null> {
   // Salvage variant + template vars from the existing wrangler.toml.
   const wranglerPath = join(projectRoot, 'wrangler.toml');
   if (!existsSync(wranglerPath)) {
-    log.err('No wrangler.toml found — cannot backfill. Was this a Flint-scaffolded project?');
+    log.err('[flint] upgrade: no wrangler.toml found in this directory — Flint can only backfill projects that have a wrangler.toml; run `flint init` to scaffold one first.');
     return null;
   }
   const wranglerText = readFileSync(wranglerPath, 'utf8');

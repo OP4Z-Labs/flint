@@ -113,7 +113,7 @@ describe('patchKvNamespace', () => {
     repo = setupRepoWithToml(SAMPLE_WITH_COMMENTS);
     const doc = readWranglerToml(repo.dir);
     expect(() => patchKvNamespace(doc, 'NOPE_KV', { id: 'x' })).toThrow(
-      /No \[\[kv_namespaces\]\] block with binding="NOPE_KV"/,
+      /\[\[kv_namespaces\]\] block with binding="NOPE_KV"/,
     );
   });
 

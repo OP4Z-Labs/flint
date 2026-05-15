@@ -1,0 +1,57 @@
+---
+title: Flint
+description: The Cloudflare Pages bootstrap CLI. Sparks the spark for Vite + React + TS apps on Cloudflare Pages.
+template: splash
+hero:
+  tagline: Spark the spark — scaffold, configure, and deploy Cloudflare Pages apps without leaving the terminal.
+  actions:
+    - text: Get started
+      link: /start/getting-started/
+      icon: right-arrow
+      variant: primary
+    - text: View on GitHub
+      link: https://github.com/beau-g/flint
+      icon: external
+---
+
+import { Card, CardGrid } from '@astrojs/starlight/components';
+
+## What Flint does
+
+<CardGrid stagger>
+  <Card title="Scaffold" icon="rocket">
+    `flint init` and `flint create-app` produce production-ready Cloudflare Pages
+    apps in three variants: static SPA, pages + functions, or full-stack with
+    KV + R2.
+  </Card>
+  <Card title="Configure" icon="setting">
+    `flint configure` wires up Pages projects, KV namespaces, R2 buckets, and
+    `.dev.vars` — no Cloudflare dashboard required.
+  </Card>
+  <Card title="Deploy" icon="cloud-upload">
+    `flint deploy` runs the canonical lint → typecheck → test → build → wrangler
+    pipeline with one command.
+  </Card>
+  <Card title="Upgrade" icon="approve-check">
+    `flint upgrade` tracks drift against the template and offers three-way
+    merges for files you've customized.
+  </Card>
+</CardGrid>
+
+## Install
+
+```bash
+npm install -g @op4z/flint
+```
+
+Or use without installing:
+
+```bash
+npx @op4z/flint create my-app --variant pages-fullstack
+```
+
+## Next
+
+- [Getting started](/start/getting-started/) — install + first project in 3 minutes
+- [Commands reference](/start/commands/) — every command, flag, and exit code
+- [Templates reference](/start/templates/) — the 3 variants and what they ship

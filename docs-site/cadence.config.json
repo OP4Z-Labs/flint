@@ -1,0 +1,86 @@
+{
+  "$schema": "https://cadence.dev/schema.json",
+  "version": "1.0.0",
+  "project": {
+    "name": "flint-docs-site",
+    "shortCode": "FDOC",
+    "description": ""
+  },
+  "stacks": [
+    "typescript"
+  ],
+  "paths": {
+    "backend": "apps/backend",
+    "frontend": "apps/frontend",
+    "packagesTs": "packages/typescript",
+    "packagesPython": "packages/python",
+    "docs": "docs",
+    "auto": "auto"
+  },
+  "defaults": {
+    "audits": [
+      "pre-merge",
+      "dependencies",
+      "dead-code",
+      "security",
+      "performance",
+      "functionality-gaps",
+      "trend",
+      "all",
+      "api-contract",
+      "reusability",
+      "extensibility",
+      "frontend",
+      "package"
+    ],
+    "standards": [
+      "cross-cutting/markdown-format-specification",
+      "cross-cutting/rules",
+      "frontend/accessibility",
+      "frontend/data-management",
+      "frontend/logging",
+      "frontend/performance",
+      "frontend/react",
+      "frontend/testing",
+      "frontend/typescript",
+      "infrastructure/ci-cd",
+      "infrastructure/docker",
+      "operations/feature-flags",
+      "operations/runbooks"
+    ],
+    "scaffolds": [
+      "package-ts"
+    ],
+    "workflows": []
+  },
+  "bridges": {
+    "claude": {
+      "enabled": false
+    },
+    "cursor": {
+      "enabled": false
+    },
+    "mcp": {
+      "enabled": false
+    }
+  },
+  "knowledge": {
+    "sources": [
+      "docker-compose.yml",
+      ".env.example"
+    ],
+    "redactPatterns": [
+      "PASSWORD",
+      "TOKEN",
+      "SECRET",
+      "KEY"
+    ]
+  },
+  "extensions": {
+    "taskAdapter": null,
+    "vcsAdapter": null
+  },
+  "telemetry": {
+    "enabled": false
+  }
+}

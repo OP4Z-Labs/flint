@@ -74,7 +74,7 @@ export async function addFeature(
   if (feature === 'rate-limit') return runAddRateLimit({ force, yes });
   // Exhaustiveness check — TS forbids ever hitting this branch, but the
   // runtime guard catches typos from JS callers.
-  throw new Error(`[flint] addFeature: unknown feature "${String(feature)}". Valid: pwa | auth | rate-limit.`);
+  throw new Error(`[flint] addFeature: unknown feature "${String(feature)}" — valid feature names: pwa, auth, rate-limit.`);
 }
 
 export { runConfig as config } from './commands/config.js';

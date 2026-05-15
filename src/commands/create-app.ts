@@ -102,8 +102,7 @@ export async function runCreateApp(opts: CreateAppOptions): Promise<void> {
     );
     if (meaningful.length > 0) {
       throw new Error(
-        `Refusing to scaffold into "${opts.appName}" — directory exists and is not empty. ` +
-          `Remove it or pick a new name.`,
+        `[flint] create-app: target directory "${opts.appName}" already exists and is not empty — remove it (or pick a fresh name) and re-run.`,
       );
     }
   }
@@ -251,8 +250,7 @@ export async function runCreateApp(opts: CreateAppOptions): Promise<void> {
         skipSecrets: false,
       });
     } catch (e) {
-      log.err(`Provisioning failed: ${e instanceof Error ? e.message : String(e)}`);
-      log.dim(`  You can re-run later:  cd ${opts.appName} && flint configure`);
+      log.err(`[flint] create-app: provisioning step failed — ${e instanceof Error ? e.message : String(e)}. Scaffold was written successfully; finish provisioning with \`cd ${opts.appName} && flint configure\`.`);
     } finally {
       process.chdir(prevCwd);
     }
@@ -283,22 +281,20 @@ export async function runCreateApp(opts: CreateAppOptions): Promise<void> {
 
 function validateAppName(name: string): void {
   if (!name || name.trim().length === 0) {
-    throw new Error('App name is required.');
+    throw new Error('[flint] create-app: app name is required — pass it as the positional argument: `flint create-app my-app`.');
   }
   if (/[\\/]/.test(name)) {
-    throw new Error('App name must not contain path separators.');
+    throw new Error('[flint] create-app: app name must not contain path separators — pass a plain directory name like `my-app`.');
   }
   if (name === '.' || name === '..') {
-    throw new Error('App name must not be "." or "..".');
+    throw new Error('[flint] create-app: app name must not be "." or ".." — pass a plain directory name like `my-app`.');
   }
 }
 
 function validateProjectName(name: string): void {
   if (!/^[a-z][a-z0-9-]{1,57}[a-z0-9]$/.test(name)) {
     throw new Error(
-      `Cloudflare Pages project name "${name}" is invalid. ` +
-        'Must start with a letter, contain only lowercase letters, digits, and hyphens, ' +
-        'be 3–58 characters, and not end with a hyphen.',
+      `[flint] create-app: Cloudflare Pages project name "${name}" is invalid — pass --cf-project with lowercase letters, digits, and hyphens (3–58 chars, must start with a letter, not end with a hyphen).`,
     );
   }
 }
@@ -310,7 +306,7 @@ async function resolveVariant(
   if (raw) {
     if (!SUPPORTED_VARIANTS.includes(raw as CreateAppVariant)) {
       throw new Error(
-        `Unknown variant "${raw}". Supported: ${SUPPORTED_VARIANTS.join(', ')}.`,
+        `[flint] create-app: unknown variant "${raw}" — pass --variant with one of: ${SUPPORTED_VARIANTS.join(', ')}.`,
       );
     }
     return raw as CreateAppVariant;
@@ -355,7 +351,9 @@ function collectFiles(templateRoot: string): PlannedFile[] {
   function walk(absDir: string, relDir: string): void {
     for (const entry of readdirSync(absDir)) {
       const abs = join(absDir, entry);
-      const rel = relDir ? join(relDir, entry) : entry;
+      // POSIX separators on the relative path — the manifest stores `/`
+      // exclusively and `path.join` would return `\` on Windows.
+      const rel = relDir ? `${relDir}/${entry}` : entry;
       const stat = statSync(abs);
       if (stat.isDirectory()) {
         walk(abs, rel);
@@ -396,7 +394,9 @@ function resolveTemplatesDir(variant: string): string {
   const here = dirname(fileURLToPath(import.meta.url));
   const candidate = resolve(here, '..', '..', 'templates', variant);
   if (existsSync(candidate)) return candidate;
-  throw new Error(`Templates directory not found: ${candidate}`);
+  throw new Error(
+    `[flint] create-app: templates directory not found at ${candidate} — your Flint install is broken; reinstall with \`npm install -g @op4z/flint\`.`,
+  );
 }
 
 function devVarsEntriesForVariant(variant: CreateAppVariant): DevVarsEntry[] {

@@ -20,7 +20,7 @@ export interface TemplateVars {
 export function renderString(input: string, vars: TemplateVars): string {
   return input.replace(TEMPLATE_RE, (_match, name: string) => {
     if (!Object.prototype.hasOwnProperty.call(vars, name)) {
-      throw new Error(`Template variable "${name}" not provided.`);
+      throw new Error(`[flint] template: variable "${name}" referenced in a .tmpl file but not provided in vars — this is a Flint template bug, please file an issue with the variant + file name.`);
     }
     return vars[name]!;
   });

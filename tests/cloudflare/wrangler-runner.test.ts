@@ -68,14 +68,27 @@ describe('resolveWranglerBin', () => {
     expect(resolveWranglerBin(tmp)).toBe('/custom/path/wrangler');
   });
 
-  it('finds node_modules/.bin/wrangler in cwd when present', () => {
-    mkdirSync(join(tmp, 'node_modules', '.bin'), { recursive: true });
-    writeFileSync(join(tmp, 'node_modules', '.bin', 'wrangler'), '#!/bin/sh\n', 'utf8');
-    expect(resolveWranglerBin(tmp)).toBe(join(tmp, 'node_modules/.bin/wrangler'));
-  });
+  it.skipIf(process.platform === 'win32')(
+    'finds node_modules/.bin/wrangler in cwd when present (POSIX)',
+    () => {
+      mkdirSync(join(tmp, 'node_modules', '.bin'), { recursive: true });
+      writeFileSync(join(tmp, 'node_modules', '.bin', 'wrangler'), '#!/bin/sh\n', 'utf8');
+      expect(resolveWranglerBin(tmp)).toBe(join(tmp, 'node_modules', '.bin', 'wrangler'));
+    },
+  );
 
-  it('falls back to bare "wrangler" when nothing else is found', () => {
-    expect(resolveWranglerBin(tmp)).toBe('wrangler');
+  it.skipIf(process.platform !== 'win32')(
+    'finds node_modules/.bin/wrangler.cmd in cwd when present (Windows)',
+    () => {
+      mkdirSync(join(tmp, 'node_modules', '.bin'), { recursive: true });
+      writeFileSync(join(tmp, 'node_modules', '.bin', 'wrangler.cmd'), '@echo off\n', 'utf8');
+      expect(resolveWranglerBin(tmp)).toBe(join(tmp, 'node_modules', '.bin', 'wrangler.cmd'));
+    },
+  );
+
+  it('falls back to a bare wrangler bin when nothing else is found', () => {
+    const expected = process.platform === 'win32' ? 'wrangler.cmd' : 'wrangler';
+    expect(resolveWranglerBin(tmp)).toBe(expected);
   });
 });
 

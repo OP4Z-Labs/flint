@@ -2,8 +2,8 @@
 
 **Date:** 2026-05-14
 **Flint version:** 0.9.0
-**Source repo:** `/home/beaug/dev/chorus` (untouched, verified)
-**Working copy:** `/home/beaug/dev/_flint-test/chorus-rescaffold/`
+**Source repo:** `~/dev/chorus` (untouched, verified)
+**Working copy:** `~/dev/_flint-test/chorus-rescaffold/`
 **Source commit SHA at start:** `496bc96ba2ee21df42df4b5ad3d4da15304e2ba1`
 **Source commit SHA at end:** `496bc96ba2ee21df42df4b5ad3d4da15304e2ba1` (untouched)
 
@@ -78,7 +78,7 @@ Rescaffold ran cleanly. Variant detection correct. All gates green.
 ## Source repo verification
 
 ```
-$ cd /home/beaug/dev/chorus && git status --short
+$ cd ~/dev/chorus && git status --short
 (no output — clean working tree)
 $ git rev-parse HEAD
 496bc96ba2ee21df42df4b5ad3d4da15304e2ba1

@@ -130,7 +130,8 @@ describe('flint deploy (integration)', () => {
     });
     expect(res.status).not.toBe(0);
     const combined = `${res.stdout}\n${res.stderr}`;
-    expect(combined).toMatch(/wrangler.*status 1/i);
+    // Error message shape: `[flint] deploy: wrangler ... exited 1 ...`
+    expect(combined).toMatch(/wrangler.*exited 1/i);
   });
 
   it('--help renders help text including the asset budget + rollback flags', () => {

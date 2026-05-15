@@ -142,7 +142,7 @@ export async function runUninstall(opts: UninstallOptions = {}): Promise<void> {
         deletedFiles.push(c.relPath);
       }
     } catch (e) {
-      if (!json) log.err(`  Failed to delete ${c.relPath}: ${e instanceof Error ? e.message : String(e)}`);
+      if (!json) log.err(`  [flint] uninstall: failed to delete ${c.relPath} — ${e instanceof Error ? e.message : String(e)}. Check permissions on the path and retry.`);
     }
   }
 
@@ -154,7 +154,7 @@ export async function runUninstall(opts: UninstallOptions = {}): Promise<void> {
       rmSync(mpath);
       manifestRemoved = true;
     } catch (e) {
-      if (!json) log.err(`  Failed to delete ${mpath}: ${e instanceof Error ? e.message : String(e)}`);
+      if (!json) log.err(`  [flint] uninstall: failed to delete ${mpath} — ${e instanceof Error ? e.message : String(e)}. Check permissions on the path and retry.`);
     }
   }
 

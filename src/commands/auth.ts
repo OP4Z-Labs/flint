@@ -131,8 +131,7 @@ export async function authStatus(opts: AuthStatusOptions = {}): Promise<void> {
   const json = opts.json === true;
   const creds = readCredentials();
   if (!creds) {
-    log.err('No Cloudflare credentials stored.');
-    log.info('Run `flint auth init` to create and store an API token.');
+    log.err('[flint] auth: no Cloudflare credentials stored — run `flint auth init` to create and store an API token.');
     process.exitCode = 1;
     formatResult(
       okResult('auth status', { stored: false }),
@@ -166,7 +165,7 @@ export async function authStatus(opts: AuthStatusOptions = {}): Promise<void> {
       expiresOn = result.expiresOn ?? null;
       log.ok(`Token is active${result.expiresOn ? ` (expires ${result.expiresOn})` : ' (no expiry)'}.`);
     } else {
-      log.err('Token is not active. Run `flint auth rotate`.');
+      log.err('[flint] auth: token is not active — run `flint auth rotate` to replace it.');
       process.exitCode = 1;
     }
   } catch (e) {
@@ -205,8 +204,7 @@ export async function authDoctor(opts: AuthDoctorOptions = {}): Promise<void> {
   const json = opts.json === true;
   const creds = readCredentials();
   if (!creds) {
-    log.err('No Cloudflare credentials stored.');
-    log.info('Run `flint auth init` first.');
+    log.err('[flint] auth: no Cloudflare credentials stored — run `flint auth init` to create and store an API token.');
     process.exitCode = 1;
     formatResult(okResult('auth doctor', { stored: false }), { json });
     return;
@@ -221,7 +219,7 @@ export async function authDoctor(opts: AuthDoctorOptions = {}): Promise<void> {
   try {
     const verify = await verifyToken(creds.token);
     if (!verify.active) {
-      log.err('Token is not active. Run `flint auth rotate` before re-running the doctor.');
+      log.err('[flint] auth: token is not active — run `flint auth rotate` before re-running the doctor.');
       process.exitCode = 1;
       formatResult(
         okResult('auth doctor', { stored: true, tokenActive: false, scopes: [] }),
@@ -230,7 +228,7 @@ export async function authDoctor(opts: AuthDoctorOptions = {}): Promise<void> {
       return;
     }
   } catch (e) {
-    log.err(`Token verification failed: ${e instanceof Error ? e.message : String(e)}`);
+    log.err(`[flint] auth: token verification failed — ${e instanceof Error ? e.message : String(e)}. Check network access to api.cloudflare.com and that the token is still valid.`);
     process.exitCode = 1;
     formatResult(
       okResult('auth doctor', { stored: true, tokenActive: null, scopes: [] }),
@@ -256,7 +254,7 @@ export async function authDoctor(opts: AuthDoctorOptions = {}): Promise<void> {
   if (failures === 0) {
     log.ok('All required scopes present.');
   } else {
-    log.err(`${failures} scope(s) missing. Edit the token at ${DASHBOARD_URL} and add the missing rows above.`);
+    log.err(`[flint] auth: ${failures} scope(s) missing — edit the token at ${DASHBOARD_URL} and add the missing rows above.`);
     process.exitCode = 1;
   }
   formatResult(
@@ -347,7 +345,7 @@ async function runAuthFlow(
   log.step('Verifying token with Cloudflare…');
   const verifyResult = await verifyToken(token);
   if (!verifyResult.active) {
-    throw new Error('Cloudflare reports the token is not active. Re-create it and try again.');
+    throw new Error('[flint] auth: Cloudflare reports the token is not active — re-create it at https://dash.cloudflare.com/profile/api-tokens and try again.');
   }
   log.ok(
     `Token verified${verifyResult.expiresOn ? ` (expires ${verifyResult.expiresOn})` : ' (no expiry)'}.`,
@@ -357,7 +355,7 @@ async function runAuthFlow(
   const accounts = await listAccounts(token);
   if (accounts.length === 0) {
     throw new Error(
-      'Token has no accessible accounts. Re-issue with Account Resources scoped correctly.',
+      '[flint] auth: token has no accessible accounts — re-issue with `Account Resources: All accounts` (or the specific accounts you need) in the token UI.',
     );
   }
   const chosen = await pickAccount(accounts, flow.previousAccount?.accountId);
@@ -438,7 +436,7 @@ async function pickAccount(
   if (!found) {
     // Inquirer's select guarantees the picked value is in `choices`, so this
     // is a logic bug if it ever fires. Throw the clearest error possible.
-    throw new Error(`Selected account ${chosenId} is not in the accounts list.`);
+    throw new Error(`[flint] auth: selected account ${chosenId} is not in the accounts list — this is a Flint bug, please file an issue.`);
   }
   return found;
 }
@@ -560,7 +558,7 @@ export async function authPurge(opts: AuthPurgeOptions = {}): Promise<void> {
       log.ok(`Removed ${credPath}`);
       removed += 1;
     } catch (e) {
-      log.err(`Failed to remove ${credPath}: ${e instanceof Error ? e.message : String(e)}`);
+      log.err(`[flint] auth: failed to remove ${credPath} — ${e instanceof Error ? e.message : String(e)}. Check permissions on the path and retry.`);
     }
   }
   if (devVarsHasToken) {
@@ -572,7 +570,7 @@ export async function authPurge(opts: AuthPurgeOptions = {}): Promise<void> {
       log.ok(`Removed ${devVarsPath}`);
       removed += 1;
     } catch (e) {
-      log.err(`Failed to remove ${devVarsPath}: ${e instanceof Error ? e.message : String(e)}`);
+      log.err(`[flint] auth: failed to remove ${devVarsPath} — ${e instanceof Error ? e.message : String(e)}. Check permissions and retry.`);
     }
   }
   if (opts.includeArchive) {
@@ -583,7 +581,7 @@ export async function authPurge(opts: AuthPurgeOptions = {}): Promise<void> {
         log.ok(`Removed ${archive}/`);
         removed += 1;
       } catch (e) {
-        log.err(`Failed to remove ${archive}: ${e instanceof Error ? e.message : String(e)}`);
+        log.err(`[flint] auth: failed to remove ${archive} — ${e instanceof Error ? e.message : String(e)}. Check permissions and retry.`);
       }
     }
   }

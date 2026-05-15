@@ -2,8 +2,8 @@
 
 **Date:** 2026-05-14
 **Flint version:** 0.9.0
-**Source repo:** `/home/beaug/dev/portfolio` (untouched, verified)
-**Working copy:** `/home/beaug/dev/_flint-test/portfolio-rescaffold/`
+**Source repo:** `~/dev/portfolio` (untouched, verified)
+**Working copy:** `~/dev/_flint-test/portfolio-rescaffold/`
 **Source commit SHA at start:** `deae4f224addcf7ef1ab94639085b8dd6f91be6a`
 **Source commit SHA at end:** `deae4f224addcf7ef1ab94639085b8dd6f91be6a` (untouched)
 
@@ -128,7 +128,7 @@ no template drift was applied to project files.
 ## Source repo verification
 
 ```
-$ cd /home/beaug/dev/portfolio && git status --short
+$ cd ~/dev/portfolio && git status --short
 (no output — clean working tree)
 $ git rev-parse HEAD
 deae4f224addcf7ef1ab94639085b8dd6f91be6a

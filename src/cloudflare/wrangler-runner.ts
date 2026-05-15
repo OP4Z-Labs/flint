@@ -15,6 +15,7 @@
 
 import { spawnSync, type SpawnSyncOptions } from 'node:child_process';
 import { existsSync } from 'node:fs';
+import { join } from 'node:path';
 
 export interface WranglerRunOptions {
   /** Cloudflare API token — placed in env as CLOUDFLARE_API_TOKEN. */
@@ -50,7 +51,20 @@ export interface WranglerRunResult {
  */
 export function resolveWranglerBin(cwd: string): string {
   if (process.env.WRANGLER_BINARY) return process.env.WRANGLER_BINARY;
-  const local = `${cwd}/node_modules/.bin/wrangler`;
+  // On Windows, npm installs binaries as `wrangler.cmd` (a shim that calls
+  // the real JS). Node's spawnSync without `shell: true` won't auto-resolve
+  // a bare `wrangler` to `wrangler.cmd`, so we probe explicitly. On POSIX
+  // the executable is plain `wrangler`.
+  if (process.platform === 'win32') {
+    const localCmd = join(cwd, 'node_modules', '.bin', 'wrangler.cmd');
+    if (existsSync(localCmd)) return localCmd;
+    const localPs = join(cwd, 'node_modules', '.bin', 'wrangler.ps1');
+    if (existsSync(localPs)) return localPs;
+    // Plain `wrangler` will work if the user invokes Flint from a shell
+    // that resolves PATHEXT (PowerShell, cmd) — best-effort fallback.
+    return 'wrangler.cmd';
+  }
+  const local = join(cwd, 'node_modules', '.bin', 'wrangler');
   if (existsSync(local)) return local;
   return 'wrangler';
 }

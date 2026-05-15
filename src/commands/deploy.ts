@@ -200,19 +200,19 @@ async function stepAuthDoctorQuiet(): Promise<boolean> {
   log.step('auth doctor (quiet) — verifying stored Cloudflare token');
   const creds = readCredentials();
   if (!creds) {
-    log.err('  No Cloudflare credentials stored. Run `flint auth init` first.');
+    log.err('  [flint] deploy: no Cloudflare credentials stored — run `flint auth init` before deploying.');
     process.exitCode = 2;
     return false;
   }
   try {
     const v = await verifyToken(creds.token);
     if (!v.active) {
-      log.err('  Token is not active. Run `flint auth rotate` and retry.');
+      log.err('  [flint] deploy: stored token is not active — run `flint auth rotate` and retry.');
       process.exitCode = 2;
       return false;
     }
   } catch (e) {
-    log.err(`  Token verification failed: ${e instanceof Error ? e.message : String(e)}`);
+    log.err(`  [flint] deploy: token verification failed — ${e instanceof Error ? e.message : String(e)}. Check network access to api.cloudflare.com.`);
     process.exitCode = 2;
     return false;
   }
@@ -228,7 +228,7 @@ function stepNpm(
 ): boolean {
   const pkgPath = join(ctx.cwd, 'package.json');
   if (!existsSync(pkgPath)) {
-    log.err(`  Cannot run ${label}: no package.json at ${ctx.cwd}.`);
+    log.err(`  [flint] deploy: cannot run ${label} — no package.json at ${ctx.cwd}. Run \`npm init -y\` first or invoke deploy from your project root.`);
     process.exitCode = 2;
     return false;
   }
@@ -244,12 +244,21 @@ function stepNpm(
     // Unparseable package.json — let npm's own error surface.
   }
   log.step(`${label} — npm ${args.join(' ')}`);
-  return runChild('npm', args, { cwd: ctx.cwd }, label);
+  return runChild(npmBin(), args, { cwd: ctx.cwd }, label);
 }
 
 function stepNpx(ctx: DeployContext, label: string, args: string[]): boolean {
   log.step(`${label} — npx ${args.join(' ')}`);
-  return runChild('npx', args, { cwd: ctx.cwd }, label);
+  return runChild(npxBin(), args, { cwd: ctx.cwd }, label);
+}
+
+/** Windows-aware bin resolution — `npm.cmd` on Windows, `npm` on POSIX. */
+function npmBin(): string {
+  return process.platform === 'win32' ? 'npm.cmd' : 'npm';
+}
+
+function npxBin(): string {
+  return process.platform === 'win32' ? 'npx.cmd' : 'npx';
 }
 
 function stepAssetBudget(ctx: DeployContext): boolean {
@@ -259,7 +268,7 @@ function stepAssetBudget(ctx: DeployContext): boolean {
   const report = inspectAssetBudget(distDir, budget);
 
   if (report.fileCount === 0) {
-    log.err(`  dist/ is empty or missing — did the build step run?`);
+    log.err(`  [flint] deploy: dist/ is empty or missing — your build step did not produce output. Re-run \`npm run build\` and check for errors.`);
     process.exitCode = 2;
     return false;
   }
@@ -281,7 +290,7 @@ function stepAssetBudget(ctx: DeployContext): boolean {
     log.warn(`  ${w}`);
   }
   if (ctx.strictBudget) {
-    log.err('  Asset budget exceeded and --strict-budget is set. Aborting deploy.');
+    log.err('  [flint] deploy: asset budget exceeded and --strict-budget is set — aborting. Reduce bundle size or drop --strict-budget to ship anyway.');
     process.exitCode = 3;
     return false;
   }
@@ -320,7 +329,7 @@ function stepWranglerDeploy(ctx: DeployContext): DeployStdoutResult | null {
     if (!res.output.endsWith('\n')) process.stdout.write('\n');
   }
   if (res.status !== 0) {
-    log.err(`  wrangler exited with status ${res.status}.`);
+    log.err(`  [flint] deploy: wrangler exited with status ${res.status} — see the wrangler output above; common causes are missing scopes, an invalid project name, or network failure.`);
     process.exitCode = 4;
     return null;
   }
@@ -396,7 +405,7 @@ async function runRollback(cwd: string, project: string): Promise<void> {
     { cwd, token: creds?.token, accountId: creds?.accountId },
   );
   if (listRes.status !== 0) {
-    log.err(`wrangler exited with status ${listRes.status}:\n${listRes.output}`);
+    log.err(`[flint] deploy: wrangler pages deployment list exited ${listRes.status} — see output below; verify the project name and token scopes.\n${listRes.output}`);
     process.exitCode = 4;
     return;
   }
@@ -427,7 +436,7 @@ async function runRollback(cwd: string, project: string): Promise<void> {
     if (!rbRes.output.endsWith('\n')) process.stdout.write('\n');
   }
   if (rbRes.status !== 0) {
-    log.err(`Rollback failed with status ${rbRes.status}.`);
+    log.err(`[flint] deploy: rollback failed with status ${rbRes.status} — see the wrangler output above; verify the deployment id and token scopes.`);
     process.exitCode = 4;
     return;
   }
@@ -499,7 +508,7 @@ function runChild(
     stdio: 'inherit',
   });
   if (res.status !== 0) {
-    log.err(`  ${label} failed (exit ${res.status}).`);
+    log.err(`  [flint] deploy: ${label} failed (exit ${res.status}) — fix the failing step or re-run with --skip-checks if you intentionally want to ship unverified.`);
     process.exitCode = 3;
     return false;
   }

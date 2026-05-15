@@ -183,8 +183,7 @@ export async function loadCredentialsOrExit(cwd: string): Promise<Credentials> {
     if (creds) return creds;
   }
 
-  log.err('No Cloudflare API token found.');
-  log.info('Run `flint auth init` first to store one.');
+  log.err('[flint] configure: no Cloudflare API token found — run `flint auth init` to store one before configuring resources.');
   process.exit(2);
 }
 
@@ -218,13 +217,11 @@ async function verifyTokenOrExit(creds: Credentials): Promise<void> {
   try {
     const v = await verifyToken(creds.token);
     if (!v.active) {
-      log.err('Cloudflare reports the stored token is not active.');
-      log.info('Run `flint auth rotate` to replace it.');
+      log.err('[flint] configure: stored Cloudflare token is not active — run `flint auth rotate` to replace it.');
       process.exit(2);
     }
   } catch (e) {
-    log.err(`Could not verify token with Cloudflare: ${e instanceof Error ? e.message : String(e)}`);
-    log.info('Check your network connection or run `flint auth doctor`.');
+    log.err(`[flint] configure: could not verify token with Cloudflare — ${e instanceof Error ? e.message : String(e)}. Check your network connection or run \`flint auth doctor\`.`);
     process.exit(2);
   }
 }
@@ -329,7 +326,7 @@ async function configurePagesProject(ctx: ConfigureContext): Promise<void> {
     accountId: ctx.creds.accountId,
   });
   if (res.status !== 0) {
-    log.err(`wrangler pages project create failed (exit ${res.status}).`);
+    log.err(`[flint] configure: wrangler pages project create exited ${res.status} — see wrangler output below; common causes are name collision or missing Pages:Edit scope.`);
     log.info(res.output.trim());
     ctx.summary.push({
       kind: 'pages-project',
@@ -477,7 +474,7 @@ async function configureKvNamespaces(ctx: ConfigureContext): Promise<void> {
       accountId: ctx.creds.accountId,
     });
     if (res.status !== 0) {
-      log.err(`wrangler kv namespace create failed (exit ${res.status}).`);
+      log.err(`[flint] configure: wrangler kv namespace create exited ${res.status} — see wrangler output below; common causes are name collision or missing Workers KV:Edit scope.`);
       log.info(res.output.trim());
       ctx.summary.push({
         kind: 'kv',
@@ -489,7 +486,7 @@ async function configureKvNamespaces(ctx: ConfigureContext): Promise<void> {
     }
     const id = extractKvIdFromOutput(res.output);
     if (!id) {
-      log.err(`Could not extract namespace id from wrangler output:\n${res.output}`);
+      log.err(`[flint] configure: could not extract namespace id from wrangler output — this is a wrangler-output-format change Flint should adapt to. File an issue with the output below.\n${res.output}`);
       ctx.summary.push({
         kind: 'kv',
         label: entry.binding,
@@ -657,7 +654,7 @@ async function configureR2Buckets(ctx: ConfigureContext): Promise<void> {
       accountId: ctx.creds.accountId,
     });
     if (res.status !== 0) {
-      log.err(`wrangler r2 bucket create failed (exit ${res.status}).`);
+      log.err(`[flint] configure: wrangler r2 bucket create exited ${res.status} — see wrangler output below; common causes are name collision or missing R2:Edit scope.`);
       log.info(res.output.trim());
       ctx.summary.push({
         kind: 'r2',
@@ -743,7 +740,7 @@ async function configureSecret(ctx: ConfigureContext, name: string): Promise<voi
     stdin: value + '\n',
   });
   if (res.status !== 0) {
-    log.err(`wrangler pages secret put failed (exit ${res.status}).`);
+    log.err(`[flint] configure: wrangler pages secret put exited ${res.status} — see wrangler output below; verify the project name and that the token has Pages:Edit on this account.`);
     log.info(res.output.trim());
     ctx.summary.push({
       kind: 'secret',

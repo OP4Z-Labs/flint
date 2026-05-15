@@ -42,6 +42,21 @@ export function isPackageManager(value: string): value is PackageManager {
   return (ALL_PMS as ReadonlyArray<string>).includes(value);
 }
 
+/**
+ * Resolve the executable name for `spawnSync` on the current platform.
+ *
+ * On Windows, npm-installed shims are `.cmd` (or `.ps1`) files and Node's
+ * `spawnSync` without `shell: true` will not auto-resolve a bare `npm` to
+ * `npm.cmd`. We append the suffix explicitly to keep `shell: true` (which
+ * is unsafe with user-supplied input) out of the codebase.
+ *
+ * POSIX returns the bare name unchanged.
+ */
+export function resolvePackageManagerBin(pm: PackageManager): string {
+  if (process.platform === 'win32') return `${pm}.cmd`;
+  return pm;
+}
+
 /** First-class vs best-effort tier classification. */
 export function packageManagerTier(pm: PackageManager): PackageManagerTier {
   return FIRST_CLASS.includes(pm) ? 'first-class' : 'best-effort';
@@ -50,7 +65,7 @@ export function packageManagerTier(pm: PackageManager): PackageManagerTier {
 /** Probe `<pm> --version` to get a version string. Returns null on failure. */
 export function probePackageManagerVersion(pm: PackageManager): string | null {
   try {
-    const res = spawnSync(pm, ['--version'], { encoding: 'utf8' });
+    const res = spawnSync(resolvePackageManagerBin(pm), ['--version'], { encoding: 'utf8' });
     if (res.status !== 0) return null;
     const out = (res.stdout + res.stderr).trim();
     // Most PMs print a single semver string. yarn 1.x prints just "1.22.22"
@@ -147,18 +162,24 @@ export function resolvePackageManager(
   return detectPackageManager(cwd).name;
 }
 
-/** Tuple of (binary-name, args) for installing deps with the given package manager. */
+/**
+ * Tuple of (binary-name, args) for installing deps with the given package
+ * manager. The binary name is platform-resolved — `npm.cmd` on Windows,
+ * `npm` on POSIX — so it can be passed directly to `spawnSync` without
+ * `shell: true`.
+ */
 export function installCommand(pm: PackageManager): readonly [string, string[]] {
+  const bin = resolvePackageManagerBin(pm);
   switch (pm) {
     case 'npm':
-      return ['npm', ['install']];
+      return [bin, ['install']];
     case 'pnpm':
-      return ['pnpm', ['install']];
+      return [bin, ['install']];
     case 'bun':
-      return ['bun', ['install']];
+      return [bin, ['install']];
     case 'yarn':
       // yarn 1.x: `yarn` alone does install. yarn 2+ uses `yarn install` too.
-      return ['yarn', ['install']];
+      return [bin, ['install']];
   }
 }
 
@@ -167,35 +188,41 @@ export function runScriptCommand(
   pm: PackageManager,
   script: string,
 ): readonly [string, string[]] {
+  const bin = resolvePackageManagerBin(pm);
   switch (pm) {
     case 'npm':
-      return ['npm', ['run', script]];
+      return [bin, ['run', script]];
     case 'pnpm':
-      return ['pnpm', ['run', script]];
+      return [bin, ['run', script]];
     case 'bun':
-      return ['bun', ['run', script]];
+      return [bin, ['run', script]];
     case 'yarn':
       // yarn 1.x lets you do `yarn <script>` for non-reserved names, but
       // `yarn run <script>` is universal.
-      return ['yarn', ['run', script]];
+      return [bin, ['run', script]];
   }
 }
 
-/** Tuple of (binary-name, args) for invoking a binary from node_modules/.bin. */
+/**
+ * Tuple of (binary-name, args) for invoking a binary from node_modules/.bin.
+ * Returns platform-resolved binary names (npx.cmd on Windows, etc.) so the
+ * caller can pass them directly to spawnSync.
+ */
 export function execCommand(
   pm: PackageManager,
   bin: string,
   binArgs: string[],
 ): readonly [string, string[]] {
+  const winSuffix = process.platform === 'win32' ? '.cmd' : '';
   switch (pm) {
     case 'npm':
-      return ['npx', ['--no-install', bin, ...binArgs]];
+      return [`npx${winSuffix}`, ['--no-install', bin, ...binArgs]];
     case 'pnpm':
-      return ['pnpm', ['exec', bin, ...binArgs]];
+      return [`pnpm${winSuffix}`, ['exec', bin, ...binArgs]];
     case 'bun':
-      return ['bunx', [bin, ...binArgs]];
+      return [`bunx${winSuffix}`, [bin, ...binArgs]];
     case 'yarn':
-      return ['yarn', ['exec', bin, ...binArgs]];
+      return [`yarn${winSuffix}`, ['exec', bin, ...binArgs]];
   }
 }
 

@@ -9,29 +9,33 @@ dashboard, hope CSP is right" with one command per step. It is opinionated
 on stack (Vite + React + TS + Wrangler v4) and unopinionated on everything
 else.
 
-**Status:** v0.9 (upgrade + add subcommands + telemetry first ship). See _Roadmap_ for what's coming.
+**Status:** v1.0 — first stable release. Manifest schema, CLI surface, and
+programmatic API are frozen. See `CHANGELOG.md` for what shipped; see
+[flint.op4z.dev](https://flint.op4z.dev) for full docs.
 
 ---
 
-## Install (v0.1: local only)
-
-Flint v0.1 is not yet published to npm. Run from a local clone:
+## Install
 
 ```bash
-git clone <flint-repo> ~/dev/flint
-cd ~/dev/flint
-npm install   # also builds via `prepare`
-npm link      # exposes `flint` globally
+npm install -g @op4z/flint
 ```
 
-After linking, the `flint` binary is on your `$PATH`. To uninstall, run
-`npm unlink -g flint` from the repo root.
+Or run without installing:
 
-> **Publishing:** the npm package name is `@op4z/flint` (scope avoids
-> the bare-`flint` collision risk). The binary stays `flint` — users
-> still invoke `npx @op4z/flint init` or `flint <command>` after install.
-> Fallback names if the `@op4z` scope ever needs revisiting: `ember`,
-> `forge`, `embark`.
+```bash
+npx @op4z/flint create-app my-app --variant pages-fullstack
+```
+
+Verify:
+
+```bash
+flint --version
+# 1.0.0
+flint doctor
+```
+
+The binary is named `flint`. The npm package is scoped to `@op4z`.
 
 ---
 
@@ -315,7 +319,7 @@ flint deploy [--branch <name>] [--preview]
 
 ## Token storage model
 
-Flint v0.1 stores the API token in **two** places per the plan:
+Flint stores the API token in **two** places by default:
 
 | Location                          | Purpose                          | Mode  |
 | --------------------------------- | -------------------------------- | ----- |
@@ -324,10 +328,10 @@ Flint v0.1 stores the API token in **two** places per the plan:
 
 `XDG_CONFIG_HOME` is honored; tests can override via `FLINT_CONFIG_HOME`.
 
-**OS keychain storage is NOT supported in v0.1.** It's on the roadmap
-behind a `--keychain` flag, but the cross-platform native deps to do it
-well outweigh the benefit at this stage. The plaintext-on-disk model is
-hardened by:
+**OS keychain storage is opt-in via `flint auth init --keychain`.** Flint
+dynamic-imports `keytar`; if it isn't installed (or fails to load on a
+minimal Linux without libsecret), Flint warns once and falls back to the
+file-backed storage. The plaintext-on-disk model is hardened by:
 
 - Mode 0600 on both files (POSIX).
 - Strict gitignore enforcement on `.dev.vars` (hard-blocks tracked files).
@@ -341,19 +345,18 @@ Nothing reads these automatically — they're a 30-day safety net.
 
 ## Current limitations (explicitly out of scope)
 
-These are deliberate omissions, queued for v1.0:
+These are deliberate omissions queued for post-1.0 work:
 
-- **Custom domain attachment** (`wrangler pages domain` wrapping) — deferred to v1.0.
-- **Real telemetry endpoint** — v0.9 emits to a local log file only.
-  v1.0 will wire to a chosen analytics backend (PostHog / Plausible Events /
-  custom worker — undecided).
+- **Custom domain attachment** (`wrangler pages domain` wrapping) — deferred to a future MINOR.
+- **Real telemetry endpoint** — Flint emits to a local log file only; pass
+  `--telemetry-endpoint <url>` (or set via `flint config --telemetry on`)
+  to forward to a self-hosted collector. There is no Flint-hosted endpoint.
 - **`@op4z/edge-content` runtime extraction** — Flint vendors the
-  `functions/_shared/` patterns verbatim. The runtime library extraction
-  happens after Blaze, Chorus, and Portfolio all run on Flint (the
-  "three consumers" bar from the package-extraction plan).
-- **npm publish** — v1.0.
-- **Windows compatibility** — POSIX-only assumptions in some test harnesses;
-  the runtime code paths are cross-platform but unverified on Windows.
+  `functions/_shared/` patterns verbatim. Runtime library extraction is
+  intentionally deferred.
+- **Windows-native deploy / auth init** — the build/scaffold paths work on
+  Windows-native after the v1.0 audit; deploy and auth init are validated
+  on WSL2/Linux/macOS only. See `docs/compatibility.md`.
 
 ### Wrangler version expectations
 
@@ -369,21 +372,22 @@ The first stable Flint release will not raise the floor.
 
 ---
 
-## Roadmap (high level)
+## Release history
 
 | Milestone   | Adds                                                                            |
 | ----------- | ------------------------------------------------------------------------------- |
 | v0.1.0      | `auth init/status/doctor/rotate`, `init` for two variants                       |
 | v0.2.0      | `configure`, `add kv`, `add r2`, `add secret`                                   |
 | v0.5.0      | `create-app` (all 3 variants), `static-spa` template, `deploy` (with rollback)  |
-| v0.9.0 ✨   | `upgrade --check/--diff/--apply` + manifest, `add pwa/auth/rate-limit`,         |
+| v0.9.0      | `upgrade --check/--diff/--apply` + manifest, `add pwa/auth/rate-limit`,         |
 |             | `auth purge`, `auth init --keychain`, real `--template <git+url>`,              |
 |             | telemetry first-ship (opt-in, local log only)                                   |
-| v1.0.0      | Public npm publish, docs site, Bun + pnpm parity, Windows compat, three         |
-|             | reference-app rescaffolds (Blaze, Chorus, Portfolio), real telemetry endpoint   |
+| **v1.0.0**  | First stable release. Public npm publish, programmatic API, Astro Starlight    |
+|             | docs site, Windows-native compatibility audit + fixes, three reference-app     |
+|             | rescaffolds (Portfolio/Chorus/Blaze), `upgrade --accept-current` for           |
+|             | first-Flint onboarding, deploy `--env`, standardized error message shape.       |
 
-Asset budget guard, rollback UX, and pre-flight gating shipped in v0.5
-(moved up from the v0.9 plan-doc allocation).
+See `CHANGELOG.md` for the full v1.0 entry.
 
 ### Manifest schema (load-bearing for v1.0)
 
@@ -435,8 +439,8 @@ Explicitly NOT collected: project paths, command args, token info, user
 identifiers, error messages. v0.9 ships to a local log only; v1.0 will
 ship to a remote endpoint with the same wire format.
 
-Full plan in
-`/home/beaug/dev/TheNexusProject/docs/plans/flint-cloudflare-bootstrapper.md`.
+See [`docs/telemetry-transparency.md`](docs/telemetry-transparency.md) for the
+full event contract and storage location.
 
 ---
 

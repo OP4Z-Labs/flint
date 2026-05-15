@@ -285,8 +285,7 @@ export function patchKvNamespace(
   const target = ranges.find((r) => r.binding === binding);
   if (!target) {
     throw new Error(
-      `No [[kv_namespaces]] block with binding="${binding}" in wrangler.toml.\n` +
-        `Use \`flint add kv ${binding}\` to declare it first.`,
+      `[flint] wrangler-toml: no [[kv_namespaces]] block with binding="${binding}" — run \`flint add kv ${binding}\` to declare it first.`,
     );
   }
   if (patch.id !== undefined) {
@@ -316,8 +315,7 @@ export function patchR2Bucket(
   const target = ranges.find((r) => r.binding === binding);
   if (!target) {
     throw new Error(
-      `No [[r2_buckets]] block with binding="${binding}" in wrangler.toml.\n` +
-        `Use \`flint add r2 ${binding}\` to declare it first.`,
+      `[flint] wrangler-toml: no [[r2_buckets]] block with binding="${binding}" — run \`flint add r2 ${binding}\` to declare it first.`,
     );
   }
   if (patch.bucket_name !== undefined) {
@@ -391,8 +389,7 @@ function reparse(doc: WranglerToml): WranglerToml {
     parsed = parse(doc.raw) as Record<string, unknown>;
   } catch (e) {
     throw new Error(
-      `In-place patch produced invalid TOML — this is a Flint bug. ` +
-        `Original error: ${e instanceof Error ? e.message : String(e)}`,
+      `[flint] wrangler-toml: in-place patch produced invalid TOML — this is a Flint bug, please file an issue with the failing wrangler.toml. Original error: ${e instanceof Error ? e.message : String(e)}`,
     );
   }
   const kv = Array.isArray(parsed.kv_namespaces) ? parsed.kv_namespaces : [];

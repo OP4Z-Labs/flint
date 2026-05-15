@@ -61,7 +61,7 @@ async function cfGet<T>(token: string, path: string): Promise<CFResponse<T>> {
   try {
     body = await res.json();
   } catch {
-    throw new Error(`Cloudflare API returned non-JSON response (HTTP ${res.status})`);
+    throw new Error(`[flint] cloudflare-api: non-JSON response from Cloudflare (HTTP ${res.status}) — check api.cloudflare.com status or retry; possibly a network/edge fault.`);
   }
   return body as CFResponse<T>;
 }
@@ -75,7 +75,7 @@ export async function verifyToken(token: string): Promise<VerifyResult> {
   const body = await cfGet<Verify>(token, '/user/tokens/verify');
   if (!body.success) {
     const reason = body.errors?.[0]?.message ?? 'unknown';
-    throw new Error(`Token verification failed: ${reason}`);
+    throw new Error(`[flint] cloudflare-api: token verification failed (${reason}) — re-create the token at https://dash.cloudflare.com/profile/api-tokens and run \`flint auth rotate\`.`);
   }
   return {
     active: body.result.status === 'active',
@@ -94,7 +94,7 @@ export async function listAccounts(token: string): Promise<CloudflareAccount[]> 
   const body = await cfGet<Account[]>(token, '/accounts?per_page=50');
   if (!body.success) {
     const reason = body.errors?.[0]?.message ?? 'unknown';
-    throw new Error(`Listing accounts failed: ${reason}`);
+    throw new Error(`[flint] cloudflare-api: listing accounts failed (${reason}) — verify the token has Account:Read and your network can reach api.cloudflare.com.`);
   }
   return body.result.map((a) => ({ id: a.id, name: a.name }));
 }
@@ -176,7 +176,7 @@ export async function listPagesProjects(
   );
   if (!body.success) {
     const reason = body.errors?.[0]?.message ?? 'unknown';
-    throw new Error(`Listing Pages projects failed: ${reason}`);
+    throw new Error(`[flint] cloudflare-api: listing Pages projects failed (${reason}) — verify the token has Pages:Edit on this account.`);
   }
   return (body.result ?? []).map((p) => ({
     name: p.name,
@@ -196,7 +196,7 @@ export async function listKvNamespaces(
   );
   if (!body.success) {
     const reason = body.errors?.[0]?.message ?? 'unknown';
-    throw new Error(`Listing KV namespaces failed: ${reason}`);
+    throw new Error(`[flint] cloudflare-api: listing KV namespaces failed (${reason}) — verify the token has Workers KV:Edit on this account.`);
   }
   return (body.result ?? []).map((n) => ({ id: n.id, title: n.title }));
 }
@@ -210,7 +210,7 @@ export async function listR2Buckets(
   const body = await cfGet<R2Result>(token, `/accounts/${accountId}/r2/buckets`);
   if (!body.success) {
     const reason = body.errors?.[0]?.message ?? 'unknown';
-    throw new Error(`Listing R2 buckets failed: ${reason}`);
+    throw new Error(`[flint] cloudflare-api: listing R2 buckets failed (${reason}) — verify the token has R2:Edit on this account.`);
   }
   return (body.result?.buckets ?? []).map((b) => ({
     name: b.name,
