@@ -14,8 +14,10 @@
 // to wrangler via stdin during provisioning.
 
 import { confirm, input, password as passwordPrompt } from '@inquirer/prompts';
-import { existsSync, readFileSync, writeFileSync } from 'node:fs';
+import { existsSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
+import { writeFileAtomic } from '../util/atomic-write.js';
+import { formatResult, ok } from '../util/format-result.js';
 import {
   appendKvNamespaceBlock,
   appendR2BucketBlock,
@@ -37,6 +39,8 @@ export interface AddKvOptions {
   force: boolean;
   /** Accept defaults; never prompt. */
   yes: boolean;
+  /** Emit a structured JSON result on stdout instead of human output. */
+  json?: boolean;
 }
 
 export async function runAddKv(opts: AddKvOptions): Promise<void> {
@@ -77,6 +81,11 @@ export async function runAddKv(opts: AddKvOptions): Promise<void> {
     yes: opts.yes,
     noProvision: opts.noProvision,
   });
+
+  formatResult(
+    ok('add kv', { binding, cwd, action: existing ? 'appended-duplicate' : 'appended' }),
+    { json: opts.json === true },
+  );
 }
 
 export interface AddR2Options {
@@ -84,6 +93,8 @@ export interface AddR2Options {
   noProvision: boolean;
   force: boolean;
   yes: boolean;
+  /** Emit a structured JSON result on stdout instead of human output. */
+  json?: boolean;
 }
 
 export async function runAddR2(opts: AddR2Options): Promise<void> {
@@ -139,6 +150,11 @@ export async function runAddR2(opts: AddR2Options): Promise<void> {
     yes: opts.yes,
     noProvision: opts.noProvision,
   });
+
+  formatResult(
+    ok('add r2', { binding, bucketName, cwd }),
+    { json: opts.json === true },
+  );
 }
 
 export interface AddSecretOptions {
@@ -157,6 +173,8 @@ export interface AddSecretOptions {
    */
   writeToDevVars: boolean;
   yes: boolean;
+  /** Emit a structured JSON result on stdout instead of human output. */
+  json?: boolean;
 }
 
 export async function runAddSecret(opts: AddSecretOptions): Promise<void> {
@@ -231,6 +249,11 @@ export async function runAddSecret(opts: AddSecretOptions): Promise<void> {
   } else {
     log.dim(`Local .dev.vars NOT modified. Add \`${name}=...\` by hand if you need it for local dev.`);
   }
+
+  formatResult(
+    ok('add secret', { name, cwd, provisioned: true, wroteToDevVars: opts.writeToDevVars }),
+    { json: opts.json === true },
+  );
 }
 
 // ─── helpers ───────────────────────────────────────────────────────────────
@@ -253,10 +276,9 @@ function updateDevVarsExample(cwd: string, name: string, description: string): v
   const path = join(cwd, DEV_VARS_EXAMPLE_FILENAME);
   const stubLine = `${name}=    # ${description}`;
   if (!existsSync(path)) {
-    writeFileSync(
+    writeFileAtomic(
       path,
       `# Documented stubs for .dev.vars — safe to commit.\n${stubLine}\n`,
-      'utf8',
     );
     return;
   }
@@ -268,7 +290,7 @@ function updateDevVarsExample(cwd: string, name: string, description: string): v
     return;
   }
   const sep = raw.endsWith('\n') ? '' : '\n';
-  writeFileSync(path, `${raw}${sep}${stubLine}\n`, 'utf8');
+  writeFileAtomic(path, `${raw}${sep}${stubLine}\n`);
 }
 
 async function hydrateDevVarsSecret(cwd: string, name: string, value: string): Promise<void> {
@@ -305,7 +327,7 @@ async function hydrateDevVarsSecret(cwd: string, name: string, value: string): P
     const sep = raw.endsWith('\n') ? '' : '\n';
     next = `${raw}${sep}${name}=${value}\n`;
   }
-  writeFileSync(path, next, { encoding: 'utf8', mode: 0o600 });
+  writeFileAtomic(path, next, { mode: 0o600 });
   log.ok(`Updated .dev.vars with ${name}=…`);
 }
 

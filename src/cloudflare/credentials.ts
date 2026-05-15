@@ -17,11 +17,10 @@ import {
   existsSync,
   mkdirSync,
   readFileSync,
-  renameSync,
-  writeFileSync,
 } from 'node:fs';
 import { credentialsPath, flintConfigDir, rotatedCredentialsDir } from '../util/paths.js';
 import { join } from 'node:path';
+import { writeJsonAtomic } from '../util/atomic-write.js';
 
 export interface Credentials {
   token: string;
@@ -60,14 +59,7 @@ export function writeCredentials(creds: Credentials): void {
   if (!existsSync(dir)) {
     mkdirSync(dir, { recursive: true, mode: DIR_MODE_PRIVATE });
   }
-  const path = credentialsPath();
-  const tmp = `${path}.tmp`;
-  writeFileSync(tmp, JSON.stringify(creds, null, 2) + '\n', {
-    encoding: 'utf8',
-    mode: FILE_MODE_PRIVATE,
-  });
-  // Rename is atomic on POSIX; on Windows, renameSync replaces too.
-  renameSync(tmp, path);
+  writeJsonAtomic(credentialsPath(), creds, { mode: FILE_MODE_PRIVATE });
 }
 
 /**
@@ -84,9 +76,6 @@ export function archiveCurrentCredentials(): string | null {
   }
   const stamp = new Date().toISOString().replace(/[:.]/g, '-');
   const snapshotPath = join(dir, `${stamp}.json`);
-  writeFileSync(snapshotPath, JSON.stringify(current, null, 2) + '\n', {
-    encoding: 'utf8',
-    mode: FILE_MODE_PRIVATE,
-  });
+  writeJsonAtomic(snapshotPath, current, { mode: FILE_MODE_PRIVATE });
   return snapshotPath;
 }

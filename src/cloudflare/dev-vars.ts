@@ -18,11 +18,11 @@ import {
   appendFileSync,
   existsSync,
   readFileSync,
-  writeFileSync,
 } from 'node:fs';
 import { spawnSync } from 'node:child_process';
 import { join } from 'node:path';
 import { DEV_VARS_FILENAME, DEV_VARS_EXAMPLE_FILENAME } from '../util/paths.js';
+import { writeFileAtomic } from '../util/atomic-write.js';
 
 export interface DevVarsEntry {
   /** Variable name, e.g. `CLOUDFLARE_API_TOKEN`. */
@@ -69,10 +69,9 @@ export function ensureGitignored(repoRoot: string): void {
   const giPath = join(repoRoot, '.gitignore');
   const target = DEV_VARS_FILENAME;
   if (!existsSync(giPath)) {
-    writeFileSync(
+    writeFileAtomic(
       giPath,
       `# Cloudflare dev secrets — managed by Flint, never commit.\n${target}\n`,
-      'utf8',
     );
     return;
   }
@@ -128,7 +127,7 @@ export function writeDevVars(repoRoot: string, entries: DevVarsEntry[]): string 
   }
   ensureGitignored(repoRoot);
   const path = join(repoRoot, DEV_VARS_FILENAME);
-  writeFileSync(path, renderDevVarsBody(entries), { encoding: 'utf8', mode: 0o600 });
+  writeFileAtomic(path, renderDevVarsBody(entries), { mode: 0o600 });
   return path;
 }
 
@@ -142,6 +141,6 @@ export function writeDevVarsExample(
 ): string {
   const stubs = entries.map((e) => ({ ...e, value: '' }));
   const path = join(repoRoot, DEV_VARS_EXAMPLE_FILENAME);
-  writeFileSync(path, renderDevVarsBody(stubs), 'utf8');
+  writeFileAtomic(path, renderDevVarsBody(stubs));
   return path;
 }

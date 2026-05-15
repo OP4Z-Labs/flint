@@ -23,9 +23,10 @@
 // chosen mode so `auth status` and `auth purge` know where to look without
 // re-prompting.
 
-import { existsSync, readFileSync, writeFileSync } from 'node:fs';
+import { existsSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { flintConfigDir } from './paths.js';
+import { writeFileAtomic } from './atomic-write.js';
 
 export type StorageMode = 'dev-vars' | 'keychain';
 
@@ -56,7 +57,7 @@ export function setStorageMode(mode: StorageMode): void {
   // writeCredentials path will create it. We still try a no-op to record.
   try {
     if (!existsSync(flintConfigDir())) return;
-    writeFileSync(path, mode + '\n', { encoding: 'utf8', mode: 0o600 });
+    writeFileAtomic(path, mode + '\n', { mode: 0o600 });
   } catch {
     // Non-fatal.
   }

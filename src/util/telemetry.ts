@@ -30,10 +30,11 @@
 //   - Re-prompt is never offered — the user changes it via `flint config
 //     --telemetry on|off`.
 
-import { existsSync, mkdirSync, readFileSync, writeFileSync, appendFileSync } from 'node:fs';
+import { existsSync, mkdirSync, readFileSync, appendFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { flintConfigDir } from './paths.js';
 import { readPackageVersion } from './version.js';
+import { writeFileAtomic } from './atomic-write.js';
 
 const TELEMETRY_FILE = 'telemetry.json';
 const TELEMETRY_LOG = 'telemetry.log';
@@ -78,10 +79,10 @@ export function writeTelemetryPrefs(prefs: TelemetryPrefs): void {
   if (!existsSync(dir)) {
     mkdirSync(dir, { recursive: true, mode: 0o700 });
   }
-  writeFileSync(
+  writeFileAtomic(
     telemetryPath(),
     JSON.stringify(prefs, null, 2) + '\n',
-    { encoding: 'utf8', mode: 0o600 },
+    { mode: 0o600 },
   );
 }
 
@@ -117,6 +118,11 @@ export function buildEventPayload(input: TelemetryEvent): Record<string, unknown
 /**
  * Emit an event if telemetry is enabled. No-op when disabled or unconfigured.
  * Errors are swallowed — telemetry must never break user commands.
+ *
+ * When `FLINT_TELEMETRY_ENDPOINT` is set (e.g. via `--telemetry-endpoint
+ * <url>`), the event is ALSO POSTed to that URL in addition to the local log.
+ * The local log remains the source of truth; the remote endpoint is a
+ * fire-and-forget mirror. POST failures are silently swallowed.
  */
 export function emitEvent(input: TelemetryEvent): void {
   try {
@@ -126,9 +132,20 @@ export function emitEvent(input: TelemetryEvent): void {
     const line = JSON.stringify(payload) + '\n';
     if (prefs.sink === 'stdout') {
       process.stdout.write(`telemetry: ${line}`);
-      return;
+    } else {
+      appendFileSync(telemetryLogPath(), line, { encoding: 'utf8', mode: 0o600 });
     }
-    appendFileSync(telemetryLogPath(), line, { encoding: 'utf8', mode: 0o600 });
+    const endpoint = process.env.FLINT_TELEMETRY_ENDPOINT;
+    if (typeof endpoint === 'string' && endpoint.startsWith('http')) {
+      // Fire-and-forget. Don't await; don't surface errors to the user.
+      void fetch(endpoint, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify(payload),
+      }).catch(() => {
+        // swallow
+      });
+    }
   } catch {
     // never throw
   }

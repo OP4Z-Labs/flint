@@ -33,7 +33,6 @@ import {
   readdirSync,
   readFileSync,
   statSync,
-  writeFileSync,
 } from 'node:fs';
 import { spawnSync } from 'node:child_process';
 import { dirname, join, relative, resolve } from 'node:path';
@@ -41,6 +40,8 @@ import { fileURLToPath } from 'node:url';
 import { renderFile, type TemplateVars } from '../util/template.js';
 import { log } from '../util/logger.js';
 import { writeDevVarsExample, type DevVarsEntry } from '../cloudflare/dev-vars.js';
+import { writeFileAtomic } from '../util/atomic-write.js';
+import { formatResult, ok } from '../util/format-result.js';
 import {
   installCommand,
   resolvePackageManager,
@@ -72,6 +73,8 @@ export interface CreateAppOptions {
   provision: boolean;
   /** Non-interactive mode — skip all prompts, use defaults. */
   yes: boolean;
+  /** Emit a structured JSON result on stdout instead of human output. */
+  json?: boolean;
 }
 
 const SUPPORTED_VARIANTS: ReadonlyArray<CreateAppVariant> = [
@@ -262,6 +265,18 @@ export async function runCreateApp(opts: CreateAppOptions): Promise<void> {
     didInstall: !opts.noInstall,
     didProvision: opts.provision,
   });
+
+  formatResult(
+    ok('create-app', {
+      appName: opts.appName,
+      variant,
+      target,
+      packageManager: pm,
+      installed: !opts.noInstall,
+      provisioned: opts.provision === true,
+    }),
+    { json: opts.json === true },
+  );
 }
 
 // ─── helpers ───────────────────────────────────────────────────────────────
@@ -366,7 +381,7 @@ function writeTemplateFile(file: PlannedFile, target: string, vars: TemplateVars
     contents = readFileSync(file.src, 'utf8');
   }
   mkdirSync(dirname(destPath), { recursive: true });
-  writeFileSync(destPath, contents, 'utf8');
+  writeFileAtomic(destPath, contents);
   return contents;
 }
 

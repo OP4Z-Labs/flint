@@ -20,8 +20,9 @@
 // effective primary key (the type-binding tuple is what shows up in the
 // runtime env), so Flint follows suit.
 
-import { existsSync, readFileSync, writeFileSync } from 'node:fs';
+import { existsSync, readFileSync } from 'node:fs';
 import { parse } from 'smol-toml';
+import { writeFileAtomic } from '../util/atomic-write.js';
 
 export interface KvNamespaceEntry {
   binding: string;
@@ -34,6 +35,13 @@ export interface R2BucketEntry {
   bucket_name?: string;
 }
 
+export interface WranglerEnv {
+  /** Per-env Pages project name (default: top-level `name`). */
+  name?: string;
+  kv_namespaces: KvNamespaceEntry[];
+  r2_buckets: R2BucketEntry[];
+}
+
 export interface WranglerToml {
   /** Pages project name (`name = "..."` at the top level). */
   name?: string;
@@ -42,6 +50,12 @@ export interface WranglerToml {
   compatibility_flags?: string[];
   kv_namespaces: KvNamespaceEntry[];
   r2_buckets: R2BucketEntry[];
+  /**
+   * `[env.<name>]` sections parsed from the wrangler.toml. Each env is a
+   * partial override of the top-level config. `flint deploy --env staging`
+   * needs to confirm `envs['staging']` exists before invoking wrangler.
+   */
+  envs: Record<string, WranglerEnv>;
   /** Raw text — kept so callers can write it back after edits. */
   raw: string;
 }
@@ -80,6 +94,27 @@ export function readWranglerToml(repoRoot: string, filename = 'wrangler.toml'): 
   }
   const kv = Array.isArray(parsed.kv_namespaces) ? parsed.kv_namespaces : [];
   const r2 = Array.isArray(parsed.r2_buckets) ? parsed.r2_buckets : [];
+
+  // `[env.<name>]` sections come through smol-toml as an `env` object whose
+  // keys are env names and whose values are partial WranglerToml-shaped
+  // sub-objects. We pluck just the fields we care about.
+  const envs: Record<string, WranglerEnv> = {};
+  const envSection =
+    typeof parsed.env === 'object' && parsed.env !== null
+      ? (parsed.env as Record<string, unknown>)
+      : {};
+  for (const [envName, envValue] of Object.entries(envSection)) {
+    if (typeof envValue !== 'object' || envValue === null) continue;
+    const envObj = envValue as Record<string, unknown>;
+    const envKv = Array.isArray(envObj.kv_namespaces) ? envObj.kv_namespaces : [];
+    const envR2 = Array.isArray(envObj.r2_buckets) ? envObj.r2_buckets : [];
+    envs[envName] = {
+      name: typeof envObj.name === 'string' ? envObj.name : undefined,
+      kv_namespaces: envKv.filter(isKvEntry),
+      r2_buckets: envR2.filter(isR2Entry),
+    };
+  }
+
   return {
     name: typeof parsed.name === 'string' ? parsed.name : undefined,
     pages_build_output_dir:
@@ -93,6 +128,7 @@ export function readWranglerToml(repoRoot: string, filename = 'wrangler.toml'): 
       : undefined,
     kv_namespaces: kv.filter(isKvEntry),
     r2_buckets: r2.filter(isR2Entry),
+    envs,
     raw,
   };
 }
@@ -121,7 +157,7 @@ export function writeWranglerToml(
   filename = 'wrangler.toml',
 ): string {
   const path = `${repoRoot}/${filename}`;
-  writeFileSync(path, doc.raw, 'utf8');
+  writeFileAtomic(path, doc.raw);
   return path;
 }
 

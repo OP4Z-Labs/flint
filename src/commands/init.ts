@@ -15,14 +15,16 @@
 // That invariant lives in `dev-vars.ts`; init never bypasses it.
 
 import { confirm, input } from '@inquirer/prompts';
-import { existsSync, mkdirSync, readdirSync, readFileSync, statSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, readdirSync, readFileSync, statSync } from 'node:fs';
 import { basename, dirname, join, relative, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { renderFile, type TemplateVars } from '../util/template.js';
 import { log } from '../util/logger.js';
 import { ensureGitignored, writeDevVarsExample, type DevVarsEntry } from '../cloudflare/dev-vars.js';
 import { ManifestTracker } from '../util/manifest-tracker.js';
+import { writeFileAtomic } from '../util/atomic-write.js';
 import { readPackageVersion } from '../util/version.js';
+import { formatResult, ok } from '../util/format-result.js';
 
 export type InitVariant = 'pages-functions' | 'pages-fullstack';
 
@@ -32,6 +34,8 @@ export interface InitOptions {
   includeCI: boolean;
   yes: boolean;
   force: boolean;
+  /** Emit a structured JSON result on stdout instead of human output. */
+  json?: boolean;
 }
 
 const SUPPORTED_VARIANTS: ReadonlyArray<InitVariant> = ['pages-functions', 'pages-fullstack'];
@@ -102,7 +106,7 @@ export async function runInit(opts: InitOptions): Promise<void> {
     }
     const rendered = renderFile(file.src, vars);
     mkdirSync(dirname(destPath), { recursive: true });
-    writeFileSync(destPath, rendered, 'utf8');
+    writeFileAtomic(destPath, rendered);
     tracker.record({
       relPath: file.dest,
       templateSource: `${variant}/${relative(templateRoot, file.src).split(/[\\/]/).join('/')}`,
@@ -137,6 +141,17 @@ export async function runInit(opts: InitOptions): Promise<void> {
   log.info('    1. `flint auth init` (if you have not yet) — stores your Cloudflare API token.');
   log.info('    2. `wrangler pages project create ' + projectName + '` (or use `flint configure` in v0.2).');
   log.info('    3. `npm run dev` — Vite + wrangler pages dev side-by-side.');
+
+  formatResult(
+    ok('init', {
+      variant,
+      projectName,
+      written,
+      skipped,
+      cwd,
+    }),
+    { json: opts.json === true },
+  );
 }
 
 // ─── helpers ───────────────────────────────────────────────────────────────
@@ -338,6 +353,6 @@ async function mergeScriptsIntoPackageJson(cwd: string, projectName: string): Pr
   }
   pkg.scripts = scripts;
 
-  writeFileSync(path, JSON.stringify(pkg, null, 2) + '\n', 'utf8');
+  writeFileAtomic(path, JSON.stringify(pkg, null, 2) + '\n');
   log.ok(`Updated ${relative(cwd, path)} (${changed} script(s) set).`);
 }

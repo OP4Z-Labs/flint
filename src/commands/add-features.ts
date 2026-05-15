@@ -26,7 +26,6 @@ import {
   existsSync,
   mkdirSync,
   readFileSync,
-  writeFileSync,
 } from 'node:fs';
 import { spawnSync } from 'node:child_process';
 import { dirname, join, resolve } from 'node:path';
@@ -35,6 +34,8 @@ import { log } from '../util/logger.js';
 import { renderFile, type TemplateVars } from '../util/template.js';
 import { ManifestTracker } from '../util/manifest-tracker.js';
 import { readManifest } from '../util/manifest.js';
+import { writeFileAtomic } from '../util/atomic-write.js';
+import { formatResult, ok as okResult } from '../util/format-result.js';
 import { readPackageVersion } from '../util/version.js';
 import { readWranglerToml } from '../cloudflare/wrangler-toml.js';
 import {
@@ -48,6 +49,8 @@ interface FeatureCommonOptions {
   force?: boolean;
   /** Skip all interactive prompts. Combined with --force, fully autonomous. */
   yes?: boolean;
+  /** Emit a structured JSON result on stdout instead of human output. */
+  json?: boolean;
 }
 
 export type AddPwaOptions = FeatureCommonOptions;
@@ -106,7 +109,7 @@ export async function runAddPwa(opts: AddPwaOptions): Promise<void> {
     const templateAbs = resolveTemplatePath('static-spa/vite.config.ts.tmpl');
     const vars: TemplateVars = renderVarsFromManifest(cwd, 'app');
     const contents = renderFile(templateAbs, vars);
-    writeFileSync(viteConfigPath, contents, 'utf8');
+    writeFileAtomic(viteConfigPath, contents);
     recordTrackerWrite(cwd, 'vite.config.ts', 'static-spa/vite.config.ts.tmpl', contents);
     log.ok('Wrote vite.config.ts with VitePWA enabled.');
     return;
@@ -134,9 +137,13 @@ export async function runAddPwa(opts: AddPwaOptions): Promise<void> {
   }
 
   const patched = patchViteConfigForPwa(original, projectNameFromManifest(cwd));
-  writeFileSync(viteConfigPath, patched, 'utf8');
+  writeFileAtomic(viteConfigPath, patched);
   log.ok('Patched vite.config.ts to enable vite-plugin-pwa.');
   recordTrackerWrite(cwd, 'vite.config.ts', 'add-pwa/inline-patch', patched);
+  formatResult(
+    okResult('add pwa', { cwd, action: 'patched-vite-config' }),
+    { json: opts.json === true },
+  );
 }
 
 /**
@@ -241,7 +248,7 @@ export async function runAddAuth(opts: AddAuthOptions): Promise<void> {
   const vars: TemplateVars = renderVarsFromManifest(cwd, 'app');
   const rendered = renderFile(templateAbs, vars);
   mkdirSync(dirname(destAbs), { recursive: true });
-  writeFileSync(destAbs, rendered, 'utf8');
+  writeFileAtomic(destAbs, rendered);
   log.ok(`Wrote ${AUTH_DEST}.`);
   recordTrackerWrite(cwd, AUTH_DEST, AUTH_TEMPLATE, rendered);
 
@@ -273,6 +280,11 @@ export async function runAddAuth(opts: AddAuthOptions): Promise<void> {
   } catch {
     log.warn(`  No wrangler.toml found. Run \`flint init\` to scaffold one first.`);
   }
+
+  formatResult(
+    okResult('add auth', { cwd, wroteFile: AUTH_DEST }),
+    { json: opts.json === true },
+  );
 }
 
 // ─── add rate-limit ────────────────────────────────────────────────────────
@@ -340,9 +352,14 @@ export async function runAddRateLimit(opts: AddRateLimitOptions): Promise<void> 
   // ratelimit.ts is not a .tmpl — copy bytes verbatim.
   const contents = readFileSync(templateAbs, 'utf8');
   mkdirSync(dirname(destAbs), { recursive: true });
-  writeFileSync(destAbs, contents, 'utf8');
+  writeFileAtomic(destAbs, contents);
   log.ok(`Wrote ${RATELIMIT_DEST}.`);
   recordTrackerWrite(cwd, RATELIMIT_DEST, RATELIMIT_TEMPLATE, contents);
+
+  formatResult(
+    okResult('add rate-limit', { cwd, wroteFile: RATELIMIT_DEST, kvBindings }),
+    { json: opts.json === true },
+  );
 }
 
 // ─── shared helpers ────────────────────────────────────────────────────────

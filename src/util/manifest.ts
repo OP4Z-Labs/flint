@@ -49,11 +49,10 @@
 import {
   existsSync,
   readFileSync,
-  renameSync,
-  writeFileSync,
 } from 'node:fs';
 import { createHash } from 'node:crypto';
 import { join } from 'node:path';
+import { writeJsonAtomic } from './atomic-write.js';
 
 export const MANIFEST_FILENAME = 'flint.manifest.json';
 export const MANIFEST_SCHEMA_VERSION = 1;
@@ -164,15 +163,7 @@ export function readManifest(projectRoot: string): Manifest | null {
 
 /** Persist the manifest atomically (write-then-rename). */
 export function writeManifest(projectRoot: string, manifest: Manifest): string {
-  const path = manifestPath(projectRoot);
-  const tmp = `${path}.tmp`;
-  writeFileSync(
-    tmp,
-    JSON.stringify(manifest, null, 2) + '\n',
-    'utf8',
-  );
-  renameSync(tmp, path);
-  return path;
+  return writeJsonAtomic(manifestPath(projectRoot), manifest);
 }
 
 export interface CreateManifestOptions {

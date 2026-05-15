@@ -36,6 +36,7 @@ import {
   statSync,
   writeFileSync,
 } from 'node:fs';
+import { writeFileAtomic } from '../util/atomic-write.js';
 import { spawnSync } from 'node:child_process';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -55,6 +56,7 @@ import { renderString, type TemplateVars } from '../util/template.js';
 import { renderUnifiedDiff } from '../util/diff.js';
 import { log } from '../util/logger.js';
 import { readPackageVersion } from '../util/version.js';
+import { formatResult, ok } from '../util/format-result.js';
 
 export interface UpgradeOptions {
   /** Print drift table only. */
@@ -65,6 +67,8 @@ export interface UpgradeOptions {
   apply: boolean;
   /** Like --apply but writes nothing. */
   dryRun: boolean;
+  /** Emit a structured JSON result on stdout instead of human output. */
+  json?: boolean;
 }
 
 const ACTION_NEEDED_KINDS: ReadonlyArray<FileState['kind']> = [
@@ -103,6 +107,24 @@ export async function runUpgrade(opts: UpgradeOptions): Promise<void> {
   printDriftTable(classified);
   log.blank();
 
+  const buildSummary = (
+    mode: 'check' | 'diff' | 'apply' | 'dry-run' | 'default',
+  ): Record<string, unknown> => {
+    const counts = { unmodified: 0, modified: 0, ejected: 0, missing: 0 };
+    for (const c of classified) counts[c.state.kind] += 1;
+    return {
+      mode,
+      projectRoot,
+      variant: manifest.variant,
+      flintVersion,
+      previousFlintVersion: manifest.flintVersion,
+      counts,
+      drift: classified
+        .filter((c) => ACTION_NEEDED_KINDS.includes(c.state.kind))
+        .map((c) => ({ path: c.relPath, kind: c.state.kind })),
+    };
+  };
+
   if (opts.check) {
     const hasDrift = classified.some((c) => ACTION_NEEDED_KINDS.includes(c.state.kind));
     if (hasDrift) {
@@ -111,11 +133,13 @@ export async function runUpgrade(opts: UpgradeOptions): Promise<void> {
     } else {
       log.ok('Project is in sync with the current Flint template.');
     }
+    formatResult(ok('upgrade', buildSummary('check')), { json: opts.json === true });
     return;
   }
 
   if (opts.diff) {
     printDiffForModified(projectRoot, manifest, classified);
+    formatResult(ok('upgrade', buildSummary('diff')), { json: opts.json === true });
     return;
   }
 
@@ -124,12 +148,17 @@ export async function runUpgrade(opts: UpgradeOptions): Promise<void> {
       dryRun: opts.dryRun,
       flintVersion,
     });
+    formatResult(
+      ok('upgrade', buildSummary(opts.dryRun ? 'dry-run' : 'apply')),
+      { json: opts.json === true },
+    );
     return;
   }
 
   // No mode flag — default is check.
   log.info('No mode flag supplied. Defaulting to --check.');
   log.info('Use --diff for unified diffs or --apply to remediate.');
+  formatResult(ok('upgrade', buildSummary('default')), { json: opts.json === true });
 }
 
 /** Print the four-state drift table. */
@@ -232,7 +261,7 @@ async function applyInteractively(
       if (ctx.dryRun) {
         log.info(`  [auto]      ${c.relPath} — would update to flint@${ctx.flintVersion}`);
       } else {
-        writeFileSync(join(projectRoot, c.relPath), renderedNew, 'utf8');
+        writeFileAtomic(join(projectRoot, c.relPath), renderedNew);
         manifest.files[c.relPath] = {
           ...c.state.entry,
           sha256: sha256OfString(renderedNew),
@@ -265,7 +294,7 @@ async function applyInteractively(
         } else {
           const abs = join(projectRoot, c.relPath);
           mkdirSync(dirname(abs), { recursive: true });
-          writeFileSync(abs, renderedNew, 'utf8');
+          writeFileAtomic(abs, renderedNew);
           manifest.files[c.relPath] = {
             ...c.state.entry,
             sha256: sha256OfString(renderedNew),
@@ -328,7 +357,7 @@ async function applyInteractively(
         if (ctx.dryRun) {
           log.info(`  [take-new]  would overwrite ${c.relPath}.`);
         } else {
-          writeFileSync(join(projectRoot, c.relPath), renderedNew, 'utf8');
+          writeFileAtomic(join(projectRoot, c.relPath), renderedNew);
           manifest.files[c.relPath] = {
             ...c.state.entry,
             sha256: sha256OfString(renderedNew),
@@ -353,7 +382,7 @@ async function applyInteractively(
             kept += 1;
             continue;
           }
-          writeFileSync(join(projectRoot, c.relPath), merged, 'utf8');
+          writeFileAtomic(join(projectRoot, c.relPath), merged);
           manifest.files[c.relPath] = {
             ...c.state.entry,
             sha256: sha256OfString(merged),
