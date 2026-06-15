@@ -4,6 +4,15 @@
   "description": "Flint — the Cloudflare Pages bootstrap CLI. Sparks the spark for Vite + React + TS apps on Cloudflare Pages.",
   "type": "module",
   "license": "MIT",
+  "author": "Beau Goldberg",
+  "homepage": "https://github.com/op4z-labs/flint",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/op4z-labs/flint.git"
+  },
+  "bugs": {
+    "url": "https://github.com/op4z-labs/flint/issues"
+  },
   "bin": {
     "flint": "./dist/cli.js"
   },
