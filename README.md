@@ -10,8 +10,10 @@ on stack (Vite + React + TS + Wrangler v4) and unopinionated on everything
 else.
 
 **Status:** v1.0 — first stable release. Manifest schema, CLI surface, and
-programmatic API are frozen. See `CHANGELOG.md` for what shipped; see
-[flint.op4z.dev](https://flint.op4z.dev) for full docs.
+programmatic API are frozen. See `CHANGELOG.md` for what shipped.
+
+**Repository:** [github.com/op4z-labs/flint](https://github.com/op4z-labs/flint)
+**Issues:** [github.com/op4z-labs/flint/issues](https://github.com/op4z-labs/flint/issues)
 
 ---
 
@@ -397,7 +399,7 @@ Blaze/Chorus/Portfolio rescaffold work will read from:
 
 ```jsonc
 {
-  "$schema":     "https://flint.op4z.dev/manifest.schema.v1.json",
+  "$schema":     "https://raw.githubusercontent.com/op4z-labs/flint/main/schemas/manifest.schema.v1.json",
   "version":     1,
   "flintVersion": "0.9.0",
   "createdAt":   "...",
@@ -551,4 +553,6 @@ tests/
 
 ## License
 
-MIT.
+MIT © [OP4Z LLC](https://op4z.dev)
+
+Built by [Beau Goldberg](https://github.com/beaugoldberg).
