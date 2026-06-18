@@ -101,14 +101,25 @@ export async function runCreateAppFromPack(opts: CreateAppFromPackOptions): Prom
 
   // 5. Stamp core trees first, then the template tree (template wins on conflict).
   let coreCount = 0;
-  for (const coreRel of pack.core) {
-    coreCount += stampTree(pack, coreRel, target, vars, tracker, `core:${coreRel}`);
+  for (const entry of pack.core) {
+    coreCount += stampTree(
+      pack,
+      entry.from,
+      entry.to,
+      entry.exclude,
+      target,
+      vars,
+      tracker,
+      `core:${entry.from}`,
+    );
   }
   log.ok(`Core: wrote ${coreCount} file(s) from ${pack.core.length} tree(s).`);
 
   const templateCount = stampTree(
     pack,
     template.path,
+    '',
+    [],
     target,
     vars,
     tracker,
@@ -246,26 +257,43 @@ async function collectProvidedVars(
  * from an external pack and can't be re-rendered from bundled templates.
  * Returns the number of files written.
  */
+/**
+ * Patterns never stamped into a generated site — test/spec files and build
+ * artifacts. A pack's canonical core trees co-locate tests next to source
+ * (good for the pack's own dev); those must not ship into client sites.
+ */
+const DEFAULT_STAMP_EXCLUDES = [
+  '**/*.test.ts',
+  '**/*.test.tsx',
+  '**/*.spec.ts',
+  '**/*.spec.tsx',
+  '**/__tests__/**',
+  '**/*.tsbuildinfo',
+];
+
 function stampTree(
   pack: Pack,
-  treeRel: string,
+  fromRel: string,
+  toSub: string,
+  exclude: string[],
   target: string,
   vars: TemplateVars,
   tracker: ManifestTracker,
   sourceLabel: string,
 ): number {
-  const root = join(pack.rootDir, treeRel);
+  const root = join(pack.rootDir, fromRel);
   if (!existsSync(root)) {
     throw new Error(
-      `[flint] create-app: pack "${pack.name}" declares tree "${treeRel}" but it does not exist on disk at ${root}.`,
+      `[flint] create-app: pack "${pack.name}" declares tree "${fromRel}" but it does not exist on disk at ${root}.`,
     );
   }
-  const files = collectFiles(root);
+  const files = collectFiles(root, [...DEFAULT_STAMP_EXCLUDES, ...exclude]);
   let written = 0;
   for (const file of files) {
-    const contents = writeTemplateFile(file, target, vars);
+    const dest = toSub ? `${toSub}/${file.dest}` : file.dest;
+    const contents = writeTemplateFile({ src: file.src, dest }, target, vars);
     tracker.record({
-      relPath: file.dest,
+      relPath: dest,
       templateSource: `pack:${pack.name}/${sourceLabel}/${relPosix(root, file.src)}`,
       contents,
     });

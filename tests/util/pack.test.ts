@@ -57,10 +57,39 @@ describe('validatePack', () => {
     const pack = validatePack(VALID_MANIFEST, '/pack/root');
     expect(pack.name).toBe('@op4z/csk');
     expect(pack.rootDir).toBe('/pack/root');
-    expect(pack.core).toEqual(['_core/edge', '_core/content']);
+    expect(pack.core).toEqual([
+      { from: '_core/edge', to: '', exclude: [] },
+      { from: '_core/content', to: '', exclude: [] },
+    ]);
     expect(pack.templates).toHaveLength(2);
     expect(pack.templates[0]!.id).toBe('spa-onepager');
     expect(pack.templates[0]!.bindings).toEqual({ kv: true, r2: true, d1: false });
+  });
+
+  it('normalizes object-form core entries (to + exclude) alongside bare strings', () => {
+    const pack = validatePack(
+      {
+        ...VALID_MANIFEST,
+        core: ['_core/edge', { from: '_core/theme', to: 'kit/theme', exclude: ['**/samples.ts'] }],
+      },
+      '/pack/root',
+    );
+    expect(pack.core).toEqual([
+      { from: '_core/edge', to: '', exclude: [] },
+      { from: '_core/theme', to: 'kit/theme', exclude: ['**/samples.ts'] },
+    ]);
+  });
+
+  it('rejects a core entry with an unknown key', () => {
+    expect(() =>
+      validatePack({ ...VALID_MANIFEST, core: [{ from: '_core/edge', dest: 'x' }] }, '/x'),
+    ).toThrow(/unknown key/);
+  });
+
+  it('rejects a core entry that is neither a string nor a {from,...} object', () => {
+    expect(() => validatePack({ ...VALID_MANIFEST, core: [123] }, '/x')).toThrow(
+      PackValidationError,
+    );
   });
 
   it('rejects an unsupported flintPackFormat', () => {

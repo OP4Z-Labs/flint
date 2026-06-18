@@ -31,8 +31,9 @@ export interface PlannedFile {
  *     published packages) becomes `.gitignore`.
  * POSIX separators are used on the relative path so the manifest stays `/`-only.
  */
-export function collectFiles(templateRoot: string): PlannedFile[] {
+export function collectFiles(templateRoot: string, exclude: string[] = []): PlannedFile[] {
   const planned: PlannedFile[] = [];
+  const matchers = exclude.map(globToRegExp);
   walk(templateRoot, '');
   return planned;
 
@@ -45,6 +46,8 @@ export function collectFiles(templateRoot: string): PlannedFile[] {
         walk(abs, rel);
         continue;
       }
+      // Exclusion is matched against the source-relative path (pre-.tmpl-strip).
+      if (matchers.some((m) => m.test(rel))) continue;
       let destRel = rel;
       if (destRel.endsWith('.tmpl')) destRel = destRel.slice(0, -'.tmpl'.length);
       if (destRel === 'gitignore') destRel = '.gitignore';
@@ -78,4 +81,40 @@ export function writeTemplateFile(
 /** Compute a POSIX-separator relative path of `fileAbs` under `rootAbs`. */
 export function relPosix(rootAbs: string, fileAbs: string): string {
   return fileAbs.slice(rootAbs.length + 1).split(/[\\/]/).join('/');
+}
+
+/**
+ * Compile a minimal glob to a RegExp for path exclusion. Supports `**` (any
+ * depth, `**\/` collapses the slash so it also matches at the root), `*` (any
+ * run within a path segment), and `?` (one non-separator char). Kept tiny and
+ * dependency-free to honor Flint's small-dep-tree philosophy.
+ */
+export function globToRegExp(glob: string): RegExp {
+  const special = /[.+^${}()|[\]\\]/g;
+  let re = "^";
+  let i = 0;
+  while (i < glob.length) {
+    const c = glob[i]!;
+    if (c === "*") {
+      if (glob[i + 1] === "*") {
+        if (glob[i + 2] === "/") {
+          re += "(?:.*/)?";
+          i += 3;
+        } else {
+          re += ".*";
+          i += 2;
+        }
+      } else {
+        re += "[^/]*";
+        i += 1;
+      }
+    } else if (c === "?") {
+      re += "[^/]";
+      i += 1;
+    } else {
+      re += c.replace(special, "\\$&");
+      i += 1;
+    }
+  }
+  return new RegExp(re + "$");
 }

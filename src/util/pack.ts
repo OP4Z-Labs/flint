@@ -66,14 +66,23 @@ export interface PackTemplate {
   includesCore?: string[];
 }
 
+export interface CoreEntry {
+  /** Tree path relative to the pack root whose contents are stamped. */
+  from: string;
+  /** Destination subdir within the generated site; '' stamps at the site root. */
+  to: string;
+  /** Extra glob patterns excluded from this tree (merged with built-in test excludes). */
+  exclude: string[];
+}
+
 export interface Pack {
   $schema?: string;
   flintPackFormat: number;
   name: string;
   version: string;
   description?: string;
-  /** Tree paths always stamped into a generated site. */
-  core: string[];
+  /** Trees always stamped into a generated site (normalized to {from,to,exclude}). */
+  core: CoreEntry[];
   vars: PackVar[];
   templates: PackTemplate[];
   /** Absolute path to the pack directory (set by the loader). */
@@ -156,14 +165,11 @@ export function validatePack(raw: unknown, rootDir: string): Pack {
   const description = optionalString(obj, 'description');
 
   if (!Array.isArray(obj.core)) {
-    throw new PackValidationError('pack.json "core" is required and must be an array of tree paths.');
+    throw new PackValidationError(
+      'pack.json "core" is required and must be an array of tree paths or {from,to,exclude} objects.',
+    );
   }
-  const core = obj.core.map((c, i) => {
-    if (typeof c !== 'string') {
-      throw new PackValidationError(`pack.json core[${i}] must be a string path.`);
-    }
-    return c;
-  });
+  const core = obj.core.map((c, i) => normalizeCoreEntry(c, i));
 
   const vars = validateVars(obj.vars);
 
@@ -192,6 +198,48 @@ export function validatePack(raw: unknown, rootDir: string): Pack {
     templates,
     rootDir,
   };
+}
+
+/**
+ * Normalize one `core[]` entry. A plain string keeps the original behavior
+ * (flatten the tree's contents to the site root). An object form
+ * `{ from, to?, exclude? }` lets a pack place a tree under a destination subdir
+ * (e.g. map `_core/edge` → `kit/edge`) and skip extra globs.
+ */
+function normalizeCoreEntry(c: unknown, i: number): CoreEntry {
+  if (typeof c === 'string') {
+    if (c.length === 0) {
+      throw new PackValidationError(`pack.json core[${i}] must be a non-empty string path.`);
+    }
+    return { from: c, to: '', exclude: [] };
+  }
+  if (typeof c !== 'object' || c === null || Array.isArray(c)) {
+    throw new PackValidationError(
+      `pack.json core[${i}] must be a string path or an object { from, to?, exclude? }.`,
+    );
+  }
+  const co = c as Record<string, unknown>;
+  const allowed = new Set(['from', 'to', 'exclude']);
+  for (const key of Object.keys(co)) {
+    if (!allowed.has(key)) {
+      throw new PackValidationError(`pack.json core[${i}] has unknown key "${key}".`);
+    }
+  }
+  const from = requireString(co, 'from', `core[${i}]`);
+  const to = optionalString(co, 'to') ?? '';
+  let exclude: string[] = [];
+  if (co.exclude !== undefined) {
+    if (!Array.isArray(co.exclude)) {
+      throw new PackValidationError(`pack.json core[${i}].exclude must be an array of glob strings.`);
+    }
+    exclude = co.exclude.map((e, j) => {
+      if (typeof e !== 'string') {
+        throw new PackValidationError(`pack.json core[${i}].exclude[${j}] must be a string.`);
+      }
+      return e;
+    });
+  }
+  return { from, to, exclude };
 }
 
 function validateVars(raw: unknown): PackVar[] {
