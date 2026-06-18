@@ -30,6 +30,37 @@ export type { InitOptions, InitVariant } from './commands/init.js';
 export { runCreateApp as createApp } from './commands/create-app.js';
 export type { CreateAppOptions } from './commands/create-app.js';
 
+// ─── Template-pack registry (additive, generic-engine seam) ─────────────────
+// An external pack (e.g. the Client Site Kit) contributes templates without
+// putting business logic into Flint. These exports let library callers load /
+// validate packs and scaffold from them programmatically.
+export { runCreateAppFromPack as createAppFromPack } from './commands/create-app-pack.js';
+export type { CreateAppFromPackOptions } from './commands/create-app-pack.js';
+export {
+  loadPack,
+  validatePack,
+  resolvePackVars,
+  applyTransform,
+  findTemplate,
+  PackValidationError,
+  FLINT_PACK_FORMAT,
+} from './util/pack.js';
+export type {
+  Pack,
+  PackVar,
+  PackTemplate,
+  PackTemplateBindings,
+  VarTransform,
+  PackRendering,
+} from './util/pack.js';
+export {
+  TemplateRegistry,
+  BUILTIN_VARIANTS,
+  BUILTIN_VARIANT_DESCRIPTIONS,
+  isBuiltinVariant,
+} from './util/registry.js';
+export type { RegistryEntry, BuiltinVariant } from './util/registry.js';
+
 export { runConfigure as configure } from './commands/configure.js';
 export type { ConfigureOptions } from './commands/configure.js';
 
@@ -41,10 +72,12 @@ export type { UpgradeOptions } from './commands/upgrade.js';
 
 export { runAddKv as addKv } from './commands/add.js';
 export { runAddR2 as addR2 } from './commands/add.js';
+export { runAddD1 as addD1 } from './commands/add.js';
 export { runAddSecret as addSecret } from './commands/add.js';
 export type {
   AddKvOptions,
   AddR2Options,
+  AddD1Options,
   AddSecretOptions,
 } from './commands/add.js';
 

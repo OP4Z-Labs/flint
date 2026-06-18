@@ -161,6 +161,13 @@ export interface R2BucketSummary {
   creation_date?: string;
 }
 
+export interface D1DatabaseSummary {
+  /** Cloudflare-internal database id (uuid). */
+  uuid: string;
+  /** Human-readable database name chosen at create time. */
+  name: string;
+}
+
 export async function listPagesProjects(
   token: string,
   accountId: string,
@@ -216,6 +223,19 @@ export async function listR2Buckets(
     name: b.name,
     creation_date: b.creation_date,
   }));
+}
+
+export async function listD1Databases(
+  token: string,
+  accountId: string,
+): Promise<D1DatabaseSummary[]> {
+  type Db = { uuid: string; name: string };
+  const body = await cfGet<Db[]>(token, `/accounts/${accountId}/d1/database?per_page=50`);
+  if (!body.success) {
+    const reason = body.errors?.[0]?.message ?? 'unknown';
+    throw new Error(`[flint] cloudflare-api: listing D1 databases failed (${reason}) — verify the token has D1:Edit on this account.`);
+  }
+  return (body.result ?? []).map((d) => ({ uuid: d.uuid, name: d.name }));
 }
 
 async function probeGeneric(

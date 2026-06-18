@@ -15,7 +15,7 @@
 // rename / delete regressions on options users depend on in scripts.
 
 import { beforeAll, describe, expect, it } from 'vitest';
-import { existsSync } from 'node:fs';
+import { existsSync, readFileSync } from 'node:fs';
 import { CLI_ENTRY, runFlint } from './_harness.js';
 
 interface HelpCase {
@@ -164,8 +164,11 @@ describe('flint --help surfaces (integration)', () => {
   it('smoke 11: flint --version prints the package.json version', () => {
     const res = runFlint(['--version']);
     expect(res.status).toBe(0);
-    // Version bumped per milestone: 0.1.0 → 0.2.0 (cleanup) → 0.5.0 (v0.5) → 0.9.0 (v0.9) → 1.0.0 (v1.0).
-    expect(res.stdout.trim()).toBe('1.0.0');
+    // Assert against package.json dynamically so a version bump can't leave this stale.
+    const pkg = JSON.parse(
+      readFileSync(new URL('../../package.json', import.meta.url), 'utf8'),
+    ) as { version: string };
+    expect(res.stdout.trim()).toBe(pkg.version);
   });
 
   it('flint with no args prints help text and exits non-zero (commander default)', () => {

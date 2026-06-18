@@ -50,9 +50,14 @@ import {
 import { ManifestTracker } from '../util/manifest-tracker.js';
 import { readPackageVersion } from '../util/version.js';
 import { applyTemplate } from '../util/template-url.js';
+import {
+  BUILTIN_VARIANTS,
+  BUILTIN_VARIANT_DESCRIPTIONS,
+  type BuiltinVariant,
+} from '../util/registry.js';
 import { runConfigure } from './configure.js';
 
-export type CreateAppVariant = 'static-spa' | 'pages-functions' | 'pages-fullstack';
+export type CreateAppVariant = BuiltinVariant;
 
 export interface CreateAppOptions {
   /** Target directory name (becomes the Pages project name unless overridden). */
@@ -61,8 +66,21 @@ export interface CreateAppOptions {
   cfProject?: string;
   /** Template variant. If undefined, the CLI prompts (unless --yes). */
   variant?: string;
-  /** Reserved for future: --template <git+url>. v0.5 stubs the flag. */
+  /**
+   * Scaffold from an external template pack at this directory (contains a
+   * pack.json). When set, `template` is interpreted as a template id WITHIN
+   * the pack rather than a git URL, and the entire pack-registry code path
+   * runs instead of the built-in variant overlay. Mutually exclusive with
+   * the git-url meaning of `--template`.
+   */
+  pack?: string;
+  /**
+   * - With `--pack`: a template id within the pack.
+   * - Without `--pack`: a `git+<url>` custom template (v0.9 behaviour).
+   */
   template?: string;
+  /** Pre-resolved pack var values (CLI: --var name=value, repeatable). */
+  vars?: Record<string, string>;
   /** Package manager override. Auto-detected if undefined. */
   pm?: string;
   /** If true, skip `<pm> install`. */
@@ -77,20 +95,29 @@ export interface CreateAppOptions {
   json?: boolean;
 }
 
-const SUPPORTED_VARIANTS: ReadonlyArray<CreateAppVariant> = [
-  'static-spa',
-  'pages-functions',
-  'pages-fullstack',
-];
-
-const VARIANT_DESCRIPTIONS: Record<CreateAppVariant, string> = {
-  'static-spa': 'static-spa — Vite + React + TS, no Pages Functions (Portfolio-style)',
-  'pages-functions': 'pages-functions — adds 1 KV namespace + HMAC auth (Chorus-style)',
-  'pages-fullstack': 'pages-fullstack — adds KV + R2 + PWA + HMAC auth (Blaze-style)',
-};
+// Built-in variants now come from the template registry (the single source of
+// truth). The local aliases keep the rest of this file's call sites unchanged.
+const SUPPORTED_VARIANTS: ReadonlyArray<CreateAppVariant> = BUILTIN_VARIANTS;
+const VARIANT_DESCRIPTIONS: Record<CreateAppVariant, string> = BUILTIN_VARIANT_DESCRIPTIONS;
 
 export async function runCreateApp(opts: CreateAppOptions): Promise<void> {
   validateAppName(opts.appName);
+
+  // Pack path: when --pack is set, the external template-pack registry takes
+  // over entirely. Built-in --variant behaviour below is untouched — this is
+  // a clean fork at the top of the command, not an interleaving.
+  if (opts.pack) {
+    const { runCreateAppFromPack } = await import('./create-app-pack.js');
+    await runCreateAppFromPack({
+      appName: opts.appName,
+      packDir: opts.pack,
+      templateId: opts.template,
+      vars: opts.vars,
+      yes: opts.yes,
+      json: opts.json,
+    });
+    return;
+  }
 
   // Resolve target directory + ensure it's safe to write into.
   const target = resolve(process.cwd(), opts.appName);

@@ -19,6 +19,7 @@ import { join } from 'node:path';
 import { writeFileAtomic } from '../util/atomic-write.js';
 import { formatResult, ok } from '../util/format-result.js';
 import {
+  appendD1DatabaseBlock,
   appendKvNamespaceBlock,
   appendR2BucketBlock,
   readWranglerToml,
@@ -153,6 +154,76 @@ export async function runAddR2(opts: AddR2Options): Promise<void> {
 
   formatResult(
     ok('add r2', { binding, bucketName, cwd }),
+    { json: opts.json === true },
+  );
+}
+
+export interface AddD1Options {
+  binding: string;
+  noProvision: boolean;
+  force: boolean;
+  yes: boolean;
+  /** Emit a structured JSON result on stdout instead of human output. */
+  json?: boolean;
+}
+
+/**
+ * `flint add d1 <BINDING>` — declare a `[[d1_databases]]` block. D1 is an
+ * opt-in seam: built-in variants never carry one, so this command is the
+ * explicit path (alongside template packs with bindings.d1=true) for adding a
+ * SQLite-on-the-edge binding to a project.
+ */
+export async function runAddD1(opts: AddD1Options): Promise<void> {
+  const cwd = process.cwd();
+  const binding = normalizeBinding(opts.binding);
+  let doc = readWranglerToml(cwd);
+
+  const existing = doc.d1_databases.find((e) => e.binding === binding);
+  if (existing && !opts.force) {
+    if (opts.yes) {
+      log.warn(
+        `A [[d1_databases]] block with binding="${binding}" already exists. Use --force to overwrite. Exiting.`,
+      );
+      return;
+    }
+    const action = await confirm({
+      message: `A [[d1_databases]] block with binding="${binding}" already exists. Append another anyway?`,
+      default: false,
+    });
+    if (!action) return;
+  }
+
+  const defaultName =
+    `${(doc.name ?? 'app').toLowerCase()}-${binding.toLowerCase().replace(/[^a-z0-9]+/g, '-')}`;
+  const databaseName = opts.yes
+    ? defaultName
+    : await input({
+        message: 'D1 database name (visible in the CF dashboard):',
+        default: defaultName,
+      });
+
+  log.heading(`Adding D1 database binding ${binding}`);
+  doc = appendD1DatabaseBlock(doc, {
+    binding,
+    database_name: databaseName,
+    comment:
+      `D1 database for ${binding}. Run \`flint configure --d1\` to provision (placeholder id below).`,
+  });
+  writeWranglerToml(cwd, doc);
+  log.ok(`Appended [[d1_databases]] block to wrangler.toml.`);
+
+  await maybeRunConfigure({
+    skipPagesProject: true,
+    skipKv: true,
+    skipR2: true,
+    skipD1: false,
+    skipSecrets: true,
+    yes: opts.yes,
+    noProvision: opts.noProvision,
+  });
+
+  formatResult(
+    ok('add d1', { binding, databaseName, cwd }),
     { json: opts.json === true },
   );
 }
@@ -334,6 +405,8 @@ interface ConfigureToggle {
   skipPagesProject: boolean;
   skipKv: boolean;
   skipR2: boolean;
+  /** Default true — only the `add d1` path opts in. */
+  skipD1?: boolean;
   skipSecrets: boolean;
   yes: boolean;
   noProvision: boolean;
@@ -359,6 +432,9 @@ async function maybeRunConfigure(toggle: ConfigureToggle): Promise<void> {
     skipPagesProject: toggle.skipPagesProject,
     skipKv: toggle.skipKv,
     skipR2: toggle.skipR2,
+    // D1 defaults to skipped for the kv/r2/secret add paths; only `add d1`
+    // passes skipD1: false so the run doesn't drag in unrelated D1 prompts.
+    skipD1: toggle.skipD1 ?? true,
     skipSecrets: toggle.skipSecrets,
   });
 }

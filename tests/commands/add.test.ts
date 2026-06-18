@@ -16,7 +16,7 @@ import {
 } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { runAddKv, runAddR2, runAddSecret } from '../../src/commands/add.js';
+import { runAddD1, runAddKv, runAddR2, runAddSecret } from '../../src/commands/add.js';
 
 const STARTER_TOML = `# starter wrangler.toml
 name = "demoapp"
@@ -179,5 +179,43 @@ describe('runAddSecret', () => {
     const body = readFileSync(join(repo.dir, '.dev.vars.example'), 'utf8');
     expect(body).toContain('ADMIN_PASSWORD=');
     expect(body).not.toMatch(/^admin-password=/m);
+  });
+});
+
+describe('runAddD1 (opt-in D1 seam)', () => {
+  let repo: RepoCtx;
+  beforeEach(() => {
+    repo = setupRepo();
+  });
+  afterEach(() => repo.cleanup());
+
+  it('appends a [[d1_databases]] block for a new binding', async () => {
+    await runAddD1({ binding: 'DB', noProvision: true, force: false, yes: true });
+    const toml = readFileSync(join(repo.dir, 'wrangler.toml'), 'utf8');
+    expect(toml).toContain('[[d1_databases]]');
+    expect(toml).toContain('binding = "DB"');
+    expect(toml).toContain('database_name = "demoapp-db"');
+    expect(toml).toContain('REPLACE_WITH_D1_DATABASE_ID');
+  });
+
+  it('preserves the original blocks + comments', async () => {
+    await runAddD1({ binding: 'DB', noProvision: true, force: false, yes: true });
+    const toml = readFileSync(join(repo.dir, 'wrangler.toml'), 'utf8');
+    expect(toml).toContain('# starter wrangler.toml');
+    expect(toml).toContain('binding = "CONTENT_KV"');
+  });
+
+  it('does not duplicate an existing binding in --yes mode without --force', async () => {
+    await runAddD1({ binding: 'DB', noProvision: true, force: false, yes: true });
+    await runAddD1({ binding: 'DB', noProvision: true, force: false, yes: true });
+    const toml = readFileSync(join(repo.dir, 'wrangler.toml'), 'utf8');
+    const occurrences = (toml.match(/binding = "DB"/g) ?? []).length;
+    expect(occurrences).toBe(1);
+  });
+
+  it('normalizes a lowercase binding to UPPER_SNAKE_CASE', async () => {
+    await runAddD1({ binding: 'app-db', noProvision: true, force: false, yes: true });
+    const toml = readFileSync(join(repo.dir, 'wrangler.toml'), 'utf8');
+    expect(toml).toContain('binding = "APP_DB"');
   });
 });

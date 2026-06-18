@@ -13,7 +13,7 @@ import { Command } from 'commander';
 import { authInit, authStatus, authDoctor, authRotate, authPurge } from './commands/auth.js';
 import { runInit } from './commands/init.js';
 import { runConfigure } from './commands/configure.js';
-import { runAddKv, runAddR2, runAddSecret } from './commands/add.js';
+import { runAddKv, runAddR2, runAddD1, runAddSecret } from './commands/add.js';
 import { runAddPwa, runAddAuth, runAddRateLimit } from './commands/add-features.js';
 import { runCreateApp } from './commands/create-app.js';
 import { runDeploy } from './commands/deploy.js';
@@ -51,6 +51,25 @@ program
 function globalJson(): boolean {
   const opts = program.opts<{ json?: boolean }>();
   return opts.json === true;
+}
+
+/**
+ * Commander accumulator for the repeatable `--var name=value` flag. Each
+ * occurrence is parsed into the accumulating record. Used by `create-app
+ * --pack` to pass pack variables non-interactively.
+ */
+function collectVar(raw: string, acc: Record<string, string>): Record<string, string> {
+  const eq = raw.indexOf('=');
+  if (eq < 0) {
+    throw new Error(`[flint] create-app: --var expects name=value, got "${raw}".`);
+  }
+  const name = raw.slice(0, eq).trim();
+  const value = raw.slice(eq + 1);
+  if (name.length === 0) {
+    throw new Error(`[flint] create-app: --var name cannot be empty (got "${raw}").`);
+  }
+  acc[name] = value;
+  return acc;
 }
 
 /**
@@ -166,7 +185,20 @@ program
     '--variant <variant>',
     'template variant: static-spa | pages-functions | pages-fullstack',
   )
-  .option('--template <git+url>', '(reserved for v0.9) custom template git URL')
+  .option(
+    '--pack <dir>',
+    'scaffold from an external template pack directory (contains pack.json)',
+  )
+  .option(
+    '--template <id-or-git+url>',
+    'with --pack: a template id within the pack; otherwise a custom git+<url> template',
+  )
+  .option(
+    '--var <name=value>',
+    'set a pack variable (repeatable, e.g. --var siteName="Acme Cafe")',
+    collectVar,
+    {} as Record<string, string>,
+  )
   .option('--pm <pm>', 'package manager: npm | pnpm | bun (auto-detected by default)')
   .option('--cf-project <name>', 'Cloudflare Pages project name (default: <name>)')
   .option('--no-install', 'do not run `<pm> install` after scaffolding')
@@ -178,7 +210,9 @@ program
       name: string,
       opts: {
         variant?: string;
+        pack?: string;
         template?: string;
+        var?: Record<string, string>;
         pm?: string;
         cfProject?: string;
         install: boolean;
@@ -190,7 +224,9 @@ program
       await runCreateApp({
         appName: name,
         variant: opts.variant,
+        pack: opts.pack,
         template: opts.template,
+        vars: opts.var,
         pm: opts.pm,
         cfProject: opts.cfProject,
         noInstall: opts.install === false,
@@ -342,6 +378,7 @@ program
   .option('--no-pages-project', 'skip the Pages project step')
   .option('--no-kv', 'skip the KV namespace step')
   .option('--no-r2', 'skip the R2 bucket step')
+  .option('--no-d1', 'skip the D1 database step (D1 is opt-in; off unless a block is declared)')
   .option('--no-secrets', 'skip the secrets step')
   .option('--secrets <names>', 'comma-separated list of secret names to set non-interactively')
   .action(
@@ -350,6 +387,7 @@ program
       pagesProject: boolean;
       kv: boolean;
       r2: boolean;
+      d1: boolean;
       secrets: boolean | string;
     }) => {
       const secretNames =
@@ -361,6 +399,7 @@ program
         skipPagesProject: opts.pagesProject === false,
         skipKv: opts.kv === false,
         skipR2: opts.r2 === false,
+        skipD1: opts.d1 === false,
         skipSecrets: opts.secrets === false,
         secrets: secretNames,
         json: globalJson(),
@@ -371,7 +410,7 @@ program
 // ─── add (v0.2) ────────────────────────────────────────────────────────────
 const add = program
   .command('add')
-  .description('additive scaffolds: kv | r2 | secret');
+  .description('additive scaffolds: kv | r2 | d1 | secret | pwa | auth | rate-limit');
 
 add
   .command('kv <binding>')
@@ -400,6 +439,24 @@ add
   .action(
     async (binding: string, opts: { provision: boolean; force?: boolean; yes?: boolean }) => {
       await runAddR2({
+        binding,
+        noProvision: opts.provision === false,
+        force: opts.force === true,
+        yes: opts.yes === true,
+        json: globalJson(),
+      });
+    },
+  );
+
+add
+  .command('d1 <binding>')
+  .description('declare a new [[d1_databases]] block and (optionally) provision it')
+  .option('--no-provision', 'do not prompt to run `flint configure` after adding')
+  .option('--force', 'append a duplicate block even if the binding already exists')
+  .option('-y, --yes', 'accept defaults; never prompt')
+  .action(
+    async (binding: string, opts: { provision: boolean; force?: boolean; yes?: boolean }) => {
+      await runAddD1({
         binding,
         noProvision: opts.provision === false,
         force: opts.force === true,

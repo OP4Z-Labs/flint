@@ -23,6 +23,7 @@ import { confirm, input, password as passwordPrompt, select } from '@inquirer/pr
 import { existsSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import {
+  listD1Databases,
   listKvNamespaces,
   listPagesProjects,
   listR2Buckets,
@@ -35,6 +36,7 @@ import {
   runWrangler,
 } from '../cloudflare/wrangler-runner.js';
 import {
+  patchD1Database,
   patchKvNamespace,
   patchR2Bucket,
   readWranglerToml,
@@ -54,6 +56,13 @@ export interface ConfigureOptions {
   skipKv: boolean;
   /** Skip the R2 bucket step. */
   skipR2: boolean;
+  /**
+   * Skip the D1 database step. Default true at the CLI layer so existing
+   * flows never touch D1 unless the project opts in — see runConfigure's
+   * `opts.skipD1 !== false` gate. The step is also a no-op when no
+   * `[[d1_databases]]` block is declared.
+   */
+  skipD1?: boolean;
   /** Skip the secrets step. */
   skipSecrets: boolean;
   /** Optional list of secret names to set. If empty, we'll prompt. */
@@ -72,7 +81,7 @@ interface ConfigureContext {
   dryRun: boolean;
 }
 
-type ResourceKind = 'pages-project' | 'kv' | 'r2' | 'secret';
+type ResourceKind = 'pages-project' | 'kv' | 'r2' | 'd1' | 'secret';
 
 interface SummaryEntry {
   kind: ResourceKind;
@@ -126,6 +135,12 @@ export async function runConfigure(opts: ConfigureOptions): Promise<void> {
   }
   if (!opts.skipR2) {
     await configureR2Buckets(ctx);
+  }
+  // D1 is a no-op unless a `[[d1_databases]]` block exists. We still gate it
+  // on `skipD1 !== true` so the CLI's `--no-d1` flag can suppress even the
+  // declared case. Existing projects (no D1 block) are unaffected either way.
+  if (opts.skipD1 !== true) {
+    await configureD1Databases(ctx);
   }
   if (!opts.skipSecrets) {
     await configureSecrets(ctx, opts.secrets ?? []);
@@ -673,6 +688,206 @@ async function configureR2Buckets(ctx: ConfigureContext): Promise<void> {
       status: 'created',
     });
   }
+}
+
+// D1 databases ─────────────────────────────────────────────────────────────
+//
+// D1 is opt-in: a project only reaches this pass when its wrangler.toml carries
+// a `[[d1_databases]]` block (stamped by a template pack with bindings.d1=true,
+// or `flint add d1`). No built-in variant declares one, so this pass returns
+// early for every existing scaffold.
+
+const D1_PLACEHOLDER_ID = 'REPLACE_WITH_D1_DATABASE_ID';
+
+async function configureD1Databases(ctx: ConfigureContext): Promise<void> {
+  if (ctx.doc.d1_databases.length === 0) {
+    // Silent: most projects have no D1 binding and shouldn't see noise.
+    return;
+  }
+
+  let existing: { uuid: string; name: string }[] = [];
+  try {
+    existing = await listD1Databases(ctx.creds.token, ctx.creds.accountId);
+  } catch (e) {
+    log.warn(`Could not list D1 databases: ${e instanceof Error ? e.message : String(e)}`);
+  }
+
+  for (const entry of ctx.doc.d1_databases) {
+    const isPlaceholder =
+      !entry.database_id ||
+      entry.database_id === D1_PLACEHOLDER_ID ||
+      /^REPLACE_/i.test(entry.database_id);
+    if (!isPlaceholder) {
+      log.dim(`D1 ${entry.binding}: database_id already set (${entry.database_id}). Skipping.`);
+      ctx.summary.push({
+        kind: 'd1',
+        label: entry.binding,
+        result: entry.database_id!,
+        status: 'reused',
+      });
+      continue;
+    }
+
+    log.heading(`D1 database for binding ${entry.binding}`);
+    const defaultName =
+      entry.database_name && !/^REPLACE_/i.test(entry.database_name)
+        ? entry.database_name
+        : `${(ctx.doc.name ?? 'app').toLowerCase()}-${entry.binding.toLowerCase().replace(/[^a-z0-9]+/g, '-')}`;
+
+    const action = await select<'create' | 'reuse' | 'skip'>({
+      message: `Action for ${entry.binding}?`,
+      choices: [
+        { name: `Create a new database (default name: ${defaultName})`, value: 'create' },
+        { name: 'Reuse an existing database', value: 'reuse' },
+        { name: 'Skip', value: 'skip' },
+      ],
+      default: 'create',
+    });
+    if (action === 'skip') {
+      ctx.summary.push({
+        kind: 'd1',
+        label: entry.binding,
+        result: '(skipped)',
+        status: 'skipped',
+      });
+      continue;
+    }
+
+    if (action === 'reuse') {
+      if (existing.length === 0) {
+        log.warn('No existing D1 databases visible to this token.');
+        ctx.summary.push({
+          kind: 'd1',
+          label: entry.binding,
+          result: '(none to reuse)',
+          status: 'skipped',
+        });
+        continue;
+      }
+      const uuid = await select<string>({
+        message: 'Pick an existing database:',
+        choices: existing.map((d) => ({ name: `${d.name} (${d.uuid})`, value: d.uuid })),
+      });
+      const chosen = existing.find((d) => d.uuid === uuid);
+      ctx.doc = patchD1Database(ctx.doc, entry.binding, {
+        database_id: uuid,
+        database_name: chosen?.name,
+      });
+      log.ok(`Patched [[d1_databases]] binding="${entry.binding}" database_id=${uuid}.`);
+      ctx.summary.push({
+        kind: 'd1',
+        label: entry.binding,
+        result: uuid,
+        status: 'reused',
+      });
+      continue;
+    }
+
+    // create
+    const databaseName = await input({
+      message: 'Database name (visible in CF dashboard):',
+      default: defaultName,
+    });
+
+    // Detect a name collision before invoking wrangler (saves an error).
+    const collision = existing.find((d) => d.name === databaseName);
+    if (collision) {
+      const reuse = await confirm({
+        message: `A D1 database named "${databaseName}" already exists (${collision.uuid}). Reuse it?`,
+        default: true,
+      });
+      if (reuse) {
+        ctx.doc = patchD1Database(ctx.doc, entry.binding, {
+          database_id: collision.uuid,
+          database_name: collision.name,
+        });
+        log.ok(`Patched [[d1_databases]] binding="${entry.binding}" database_id=${collision.uuid}.`);
+        ctx.summary.push({
+          kind: 'd1',
+          label: entry.binding,
+          result: collision.uuid,
+          status: 'reused',
+        });
+        continue;
+      }
+    }
+
+    const cmd = ['d1', 'create', databaseName];
+    if (ctx.dryRun) {
+      printPlannedCmd(cmd);
+      ctx.summary.push({
+        kind: 'd1',
+        label: entry.binding,
+        result: '(dry-run)',
+        status: 'would-create',
+      });
+      // Patch the name now so the dry-run diff shows the intended change.
+      ctx.doc = patchD1Database(ctx.doc, entry.binding, { database_name: databaseName });
+      continue;
+    }
+
+    log.step(`Running: wrangler ${cmd.join(' ')}`);
+    const res = runWrangler(cmd, {
+      cwd: ctx.cwd,
+      token: ctx.creds.token,
+      accountId: ctx.creds.accountId,
+    });
+    if (res.status !== 0) {
+      log.err(`[flint] configure: wrangler d1 create exited ${res.status} — see wrangler output below; common causes are name collision or missing D1:Edit scope.`);
+      log.info(res.output.trim());
+      ctx.summary.push({
+        kind: 'd1',
+        label: entry.binding,
+        result: `(failed: status ${res.status})`,
+        status: 'failed',
+      });
+      continue;
+    }
+    const uuid = extractD1IdFromOutput(res.output);
+    if (!uuid) {
+      log.err(`[flint] configure: could not extract database_id from wrangler output — this is a wrangler-output-format change Flint should adapt to. File an issue with the output below.\n${res.output}`);
+      ctx.summary.push({
+        kind: 'd1',
+        label: entry.binding,
+        result: '(id parse failed)',
+        status: 'failed',
+      });
+      continue;
+    }
+    ctx.doc = patchD1Database(ctx.doc, entry.binding, {
+      database_id: uuid,
+      database_name: databaseName,
+    });
+    log.ok(`Created D1 database "${databaseName}" id=${uuid}; patched wrangler.toml.`);
+    ctx.summary.push({
+      kind: 'd1',
+      label: entry.binding,
+      result: uuid,
+      status: 'created',
+    });
+  }
+}
+
+/**
+ * Wrangler prints the new D1 database id (a uuid) in one of two shapes
+ * depending on version. We try both:
+ *
+ *   1) JSON object on stdout: `{"uuid":"...","name":"..."}`
+ *   2) A TOML snippet line: `database_id = "..."`
+ *   3) A sentence: `Created your new D1 database ... ✅ ... database_id = "..."`
+ */
+export function extractD1IdFromOutput(output: string): string | null {
+  const uuidRe = '[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}';
+  // JSON form (`"uuid": "..."`).
+  const jsonMatch = new RegExp(`"uuid"\\s*:\\s*"(${uuidRe})"`, 'i').exec(output);
+  if (jsonMatch) return jsonMatch[1]!;
+  // TOML snippet form (`database_id = "..."`).
+  const tomlMatch = new RegExp(`database_id\\s*=\\s*"(${uuidRe})"`, 'i').exec(output);
+  if (tomlMatch) return tomlMatch[1]!;
+  // Bare uuid anywhere in the output.
+  const bare = new RegExp(uuidRe, 'i').exec(output);
+  if (bare) return bare[0];
+  return null;
 }
 
 // Secrets ──────────────────────────────────────────────────────────────────

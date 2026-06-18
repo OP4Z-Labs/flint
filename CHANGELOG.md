@@ -4,6 +4,29 @@ All notable changes to `@op4z/flint` are documented in this file. Format
 follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); this
 project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Added
+
+- **Pluggable template packs.** `flint create-app <dir> --pack <pack-dir> --template <id> [--var k=v]`
+  scaffolds from an external template pack — a directory with a `pack.json` manifest
+  (format `flint-pack-1`) declaring `core[]` trees always stamped, `vars` (with
+  `from`/`transform` derivation: kebab/snakeCookie/lower/title), and `templates[]`.
+  A new `TemplateRegistry` seam (`src/util/registry.ts`) merges pack templates with
+  the built-in variants on demand; the built-in `--variant` flow is unchanged.
+  See `src/util/pack.ts` (loader + validator, no JSON-schema dep) and
+  `src/commands/create-app-pack.ts`.
+- **D1 support.** `flint add d1 <binding>` plus D1 provisioning in `configure`
+  (comment-preserving `[[d1_databases]]` patching of `wrangler.toml`). Off by
+  default — existing flows gain D1 only when asked; `configure --no-d1` skips it.
+
+### Fixed
+
+- Skeleton `package.json` now includes `zod` — the `pages-functions` /
+  `pages-fullstack` function templates import it.
+- The `--version` smoke test reads the version from `package.json` dynamically
+  instead of a hardcoded literal (which had gone stale at `1.0.0`).
+
 ## [1.0.0] - 2026-05-14
 
 The first stable release. Manifest schema, CLI surface, and programmatic

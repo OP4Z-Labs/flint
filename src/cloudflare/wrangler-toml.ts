@@ -14,7 +14,13 @@
 //   - read & parse (returns the parsed object + the raw text)
 //   - patch a key inside an existing `[[kv_namespaces]]` block keyed by binding
 //   - patch a key inside an existing `[[r2_buckets]]` block keyed by binding
-//   - append a new `[[kv_namespaces]]` / `[[r2_buckets]]` block at end-of-file
+//   - patch a key inside an existing `[[d1_databases]]` block keyed by binding
+//   - append a new `[[kv_namespaces]]` / `[[r2_buckets]]` / `[[d1_databases]]`
+//     block at end-of-file
+//
+// D1 support (the SQLite-on-the-edge binding) was added as an OFF-by-default
+// seam so a template pack that declares `bindings.d1 = true` can provision a
+// D1 database. No built-in variant ships a D1 block — it is purely opt-in.
 //
 // Block identity is the `binding` value — Wrangler treats this as the
 // effective primary key (the type-binding tuple is what shows up in the
@@ -35,11 +41,18 @@ export interface R2BucketEntry {
   bucket_name?: string;
 }
 
+export interface D1DatabaseEntry {
+  binding: string;
+  database_name?: string;
+  database_id?: string;
+}
+
 export interface WranglerEnv {
   /** Per-env Pages project name (default: top-level `name`). */
   name?: string;
   kv_namespaces: KvNamespaceEntry[];
   r2_buckets: R2BucketEntry[];
+  d1_databases: D1DatabaseEntry[];
 }
 
 export interface WranglerToml {
@@ -50,6 +63,7 @@ export interface WranglerToml {
   compatibility_flags?: string[];
   kv_namespaces: KvNamespaceEntry[];
   r2_buckets: R2BucketEntry[];
+  d1_databases: D1DatabaseEntry[];
   /**
    * `[env.<name>]` sections parsed from the wrangler.toml. Each env is a
    * partial override of the top-level config. `flint deploy --env staging`
@@ -94,6 +108,7 @@ export function readWranglerToml(repoRoot: string, filename = 'wrangler.toml'): 
   }
   const kv = Array.isArray(parsed.kv_namespaces) ? parsed.kv_namespaces : [];
   const r2 = Array.isArray(parsed.r2_buckets) ? parsed.r2_buckets : [];
+  const d1 = Array.isArray(parsed.d1_databases) ? parsed.d1_databases : [];
 
   // `[env.<name>]` sections come through smol-toml as an `env` object whose
   // keys are env names and whose values are partial WranglerToml-shaped
@@ -108,10 +123,12 @@ export function readWranglerToml(repoRoot: string, filename = 'wrangler.toml'): 
     const envObj = envValue as Record<string, unknown>;
     const envKv = Array.isArray(envObj.kv_namespaces) ? envObj.kv_namespaces : [];
     const envR2 = Array.isArray(envObj.r2_buckets) ? envObj.r2_buckets : [];
+    const envD1 = Array.isArray(envObj.d1_databases) ? envObj.d1_databases : [];
     envs[envName] = {
       name: typeof envObj.name === 'string' ? envObj.name : undefined,
       kv_namespaces: envKv.filter(isKvEntry),
       r2_buckets: envR2.filter(isR2Entry),
+      d1_databases: envD1.filter(isD1Entry),
     };
   }
 
@@ -128,6 +145,7 @@ export function readWranglerToml(repoRoot: string, filename = 'wrangler.toml'): 
       : undefined,
     kv_namespaces: kv.filter(isKvEntry),
     r2_buckets: r2.filter(isR2Entry),
+    d1_databases: d1.filter(isD1Entry),
     envs,
     raw,
   };
@@ -142,6 +160,14 @@ function isKvEntry(x: unknown): x is KvNamespaceEntry {
   );
 }
 function isR2Entry(x: unknown): x is R2BucketEntry {
+  return (
+    typeof x === 'object' &&
+    x !== null &&
+    'binding' in x &&
+    typeof (x as { binding: unknown }).binding === 'string'
+  );
+}
+function isD1Entry(x: unknown): x is D1DatabaseEntry {
   return (
     typeof x === 'object' &&
     x !== null &&
@@ -172,7 +198,7 @@ export function writeWranglerToml(
 // comments after, which we tolerate). A block ends at the next `[`-line
 // or EOF.
 
-type BlockKind = 'kv_namespaces' | 'r2_buckets';
+type BlockKind = 'kv_namespaces' | 'r2_buckets' | 'd1_databases';
 
 interface BlockRange {
   /** Header line index (0-based). */
@@ -324,6 +350,38 @@ export function patchR2Bucket(
   return reparse({ ...doc, raw: lines.join('\n') });
 }
 
+/**
+ * Patch an existing `[[d1_databases]]` block keyed by `binding`. Sets
+ * `database_id` and (optionally) `database_name`. Returns the new document;
+ * throws if no block with that binding exists. Mirrors `patchKvNamespace` so
+ * comment preservation + re-parse-in-sync behave identically.
+ */
+export function patchD1Database(
+  doc: WranglerToml,
+  binding: string,
+  patch: { database_id?: string; database_name?: string },
+): WranglerToml {
+  let lines = splitLines(doc.raw);
+  const ranges = findBlocks(lines, 'd1_databases');
+  const target = ranges.find((r) => r.binding === binding);
+  if (!target) {
+    throw new Error(
+      `[flint] wrangler-toml: no [[d1_databases]] block with binding="${binding}" — declare it first (a template pack with bindings.d1=true stamps one, or run \`flint add d1 ${binding}\`).`,
+    );
+  }
+  if (patch.database_name !== undefined) {
+    lines = setKeyInBlock(lines, target, 'database_name', patch.database_name);
+  }
+  if (patch.database_id !== undefined) {
+    // Range indices shift if database_name was newly appended — re-find first.
+    const refreshed = findBlocks(lines, 'd1_databases').find((r) => r.binding === binding);
+    if (refreshed) {
+      lines = setKeyInBlock(lines, refreshed, 'database_id', patch.database_id);
+    }
+  }
+  return reparse({ ...doc, raw: lines.join('\n') });
+}
+
 export interface AppendKvOptions {
   binding: string;
   /** Stub id placeholder (default: REPLACE_WITH_KV_NAMESPACE_ID). */
@@ -353,6 +411,21 @@ export function appendR2BucketBlock(doc: WranglerToml, opts: AppendR2Options): W
   return reparse({ ...doc, raw: appendBlock(doc.raw, block) });
 }
 
+export interface AppendD1Options {
+  binding: string;
+  database_name: string;
+  /** Stub database id (default: REPLACE_WITH_D1_DATABASE_ID). */
+  database_id?: string;
+  comment?: string;
+}
+
+/** Append a `[[d1_databases]]` block to the document. */
+export function appendD1DatabaseBlock(doc: WranglerToml, opts: AppendD1Options): WranglerToml {
+  const databaseId = opts.database_id ?? 'REPLACE_WITH_D1_DATABASE_ID';
+  const block = renderD1Block(opts.binding, opts.database_name, databaseId, opts.comment);
+  return reparse({ ...doc, raw: appendBlock(doc.raw, block) });
+}
+
 function renderKvBlock(binding: string, id: string, previewId: string, comment?: string): string {
   const lines: string[] = [];
   if (comment) {
@@ -376,6 +449,23 @@ function renderR2Block(binding: string, bucketName: string, comment?: string): s
   return lines.join('\n');
 }
 
+function renderD1Block(
+  binding: string,
+  databaseName: string,
+  databaseId: string,
+  comment?: string,
+): string {
+  const lines: string[] = [];
+  if (comment) {
+    for (const c of comment.split('\n')) lines.push(`# ${c}`);
+  }
+  lines.push('[[d1_databases]]');
+  lines.push(`binding = "${binding}"`);
+  lines.push(`database_name = "${databaseName}"`);
+  lines.push(`database_id = "${databaseId}"`);
+  return lines.join('\n');
+}
+
 /** Append a block to `raw`, ensuring exactly one blank line of separation. */
 function appendBlock(raw: string, block: string): string {
   const trimmed = raw.replace(/\s*$/, '');
@@ -394,11 +484,13 @@ function reparse(doc: WranglerToml): WranglerToml {
   }
   const kv = Array.isArray(parsed.kv_namespaces) ? parsed.kv_namespaces : [];
   const r2 = Array.isArray(parsed.r2_buckets) ? parsed.r2_buckets : [];
+  const d1 = Array.isArray(parsed.d1_databases) ? parsed.d1_databases : [];
   return {
     ...doc,
     name: typeof parsed.name === 'string' ? parsed.name : doc.name,
     kv_namespaces: kv.filter(isKvEntry),
     r2_buckets: r2.filter(isR2Entry),
+    d1_databases: d1.filter(isD1Entry),
   };
 }
 
