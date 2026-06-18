@@ -19,6 +19,13 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 - **D1 support.** `flint add d1 <binding>` plus D1 provisioning in `configure`
   (comment-preserving `[[d1_databases]]` patching of `wrangler.toml`). Off by
   default — existing flows gain D1 only when asked; `configure --no-d1` skips it.
+- **Pack-aware upgrades.** `flint upgrade --pack <dir>` re-renders pack-stamped
+  files from the current pack, so a fix made upstream in a template pack now
+  propagates into already-generated sites (fed through the existing 3-way-merge,
+  so local edits are preserved). Previously pack-stamped files were silently
+  skipped; upgrade now also warns loudly when a manifest has `pack:` sources but
+  no `--pack` is supplied. Built-in and `git+` upgrade paths are unchanged. See
+  `src/util/pack-upgrade.ts`.
 
 ### Fixed
 

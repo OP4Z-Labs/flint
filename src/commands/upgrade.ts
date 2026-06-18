@@ -58,6 +58,7 @@ import { renderUnifiedDiff } from '../util/diff.js';
 import { log } from '../util/logger.js';
 import { readPackageVersion } from '../util/version.js';
 import { formatResult, ok } from '../util/format-result.js';
+import { buildPackResolver, type PackRenderResolver } from '../util/pack-upgrade.js';
 
 export interface UpgradeOptions {
   /** Print drift table only. */
@@ -79,6 +80,14 @@ export interface UpgradeOptions {
    * and `ejected` states are left untouched.
    */
   acceptCurrent: boolean;
+  /**
+   * Path to the template pack the project was scaffolded from. Required to
+   * re-render `pack:`-sourced files (every Client-Site-Kit file). Without it,
+   * upgrade can only re-render Flint's BUILT-IN templates and silently skips
+   * pack-stamped files — see util/pack-upgrade.ts for the full rationale.
+   * Built-in (`--variant`) projects don't need it.
+   */
+  pack?: string;
   /** Emit a structured JSON result on stdout instead of human output. */
   json?: boolean;
 }
@@ -113,6 +122,28 @@ export async function runUpgrade(opts: UpgradeOptions): Promise<void> {
   log.heading(`Flint upgrade — ${manifest.variant} project @ ${manifest.flintVersion} → ${flintVersion}`);
   log.dim(`  Project: ${projectRoot}`);
   log.dim(`  History: ${manifest.history.length} prior invocation(s).`);
+
+  // Pack seam: a project scaffolded from `create-app --pack` records its files
+  // with `pack:` templateSources that the built-in template tree can't
+  // re-render. If the user passes --pack, build a resolver from the current
+  // pack so those files participate in drift detection + 3-way merge. Without
+  // it, pack files are skipped (and we warn if the manifest contains any, so
+  // the failure mode is loud rather than silent).
+  let packResolver: PackRenderResolver | null = null;
+  if (opts.pack) {
+    try {
+      packResolver = buildPackResolver(opts.pack, manifest.vars);
+      log.dim(`  Pack:    ${packResolver.pack.name} v${packResolver.pack.version} (${packResolver.sources.size} source file(s)).`);
+    } catch (e) {
+      log.err(`[flint] upgrade: could not load pack at "${opts.pack}": ${e instanceof Error ? e.message : String(e)}`);
+      process.exitCode = 1;
+      return;
+    }
+  } else if (manifestHasPackSources(manifest)) {
+    log.warn('  This project was scaffolded from a template pack, but no --pack was supplied.');
+    log.warn('  Pack-stamped files cannot be re-rendered and will be skipped. Re-run with');
+    log.warn('  `flint upgrade --pack <pack-dir>` to propagate upstream pack fixes.');
+  }
   log.blank();
 
   const classified = classifyAll(projectRoot, manifest);
@@ -150,7 +181,7 @@ export async function runUpgrade(opts: UpgradeOptions): Promise<void> {
   }
 
   if (opts.diff) {
-    printDiffForModified(projectRoot, manifest, classified);
+    printDiffForModified(projectRoot, manifest, classified, packResolver);
     formatResult(ok('upgrade', buildSummary('diff')), { json: opts.json === true });
     return;
   }
@@ -168,6 +199,7 @@ export async function runUpgrade(opts: UpgradeOptions): Promise<void> {
     await applyInteractively(projectRoot, manifest, classified, {
       dryRun: opts.dryRun,
       flintVersion,
+      packResolver,
     });
     formatResult(
       ok('upgrade', buildSummary(opts.dryRun ? 'dry-run' : 'apply')),
@@ -211,6 +243,7 @@ function printDiffForModified(
   projectRoot: string,
   manifest: Manifest,
   classified: ClassifiedFile[],
+  packResolver: PackRenderResolver | null,
 ): void {
   const modified = classified.filter((c) => c.state.kind === 'modified');
   if (modified.length === 0) {
@@ -220,7 +253,7 @@ function printDiffForModified(
   log.heading(`Diffs for ${modified.length} modified file(s)`);
   for (const c of modified) {
     const userContent = readFileSync(join(projectRoot, c.relPath), 'utf8');
-    const renderedNew = renderTemplateContent(c.state.entry.templateSource, manifest.vars);
+    const renderedNew = renderTemplateContent(c.state.entry.templateSource, manifest.vars, packResolver);
     if (renderedNew === null) {
       log.warn(`  Skipping ${c.relPath} — template source not found in current Flint: ${c.state.entry.templateSource}`);
       continue;
@@ -242,6 +275,7 @@ function printDiffForModified(
 interface ApplyContext {
   dryRun: boolean;
   flintVersion: string;
+  packResolver: PackRenderResolver | null;
 }
 
 async function applyInteractively(
@@ -272,7 +306,7 @@ async function applyInteractively(
       // Auto-update path: re-render the bundled template + check if the
       // current bundled version differs from what the user has. If so,
       // update silently (no prompt needed — the user hasn't touched it).
-      const renderedNew = renderTemplateContent(c.state.entry.templateSource, manifest.vars);
+      const renderedNew = renderTemplateContent(c.state.entry.templateSource, manifest.vars, ctx.packResolver);
       if (renderedNew === null) continue;
       const userContent = readFileSync(join(projectRoot, c.relPath), 'utf8');
       if (userContent === renderedNew) {
@@ -305,7 +339,7 @@ async function applyInteractively(
         default: 'skip',
       });
       if (choice === 'restore') {
-        const renderedNew = renderTemplateContent(c.state.entry.templateSource, manifest.vars);
+        const renderedNew = renderTemplateContent(c.state.entry.templateSource, manifest.vars, ctx.packResolver);
         if (renderedNew === null) {
           log.warn(`  Template source not found in current Flint — cannot restore.`);
           continue;
@@ -337,7 +371,7 @@ async function applyInteractively(
     // modified path
     if (c.state.kind === 'modified') {
       const userContent = readFileSync(join(projectRoot, c.relPath), 'utf8');
-      const renderedNew = renderTemplateContent(c.state.entry.templateSource, manifest.vars);
+      const renderedNew = renderTemplateContent(c.state.entry.templateSource, manifest.vars, ctx.packResolver);
       if (renderedNew === null) {
         log.warn(`  ${c.relPath}: template source missing in current Flint (${c.state.entry.templateSource}). Skipping.`);
         continue;
@@ -522,10 +556,16 @@ function acceptCurrentAsBaseline(
 }
 
 /**
- * Read `templates/<templateSource>` from the bundled templates directory,
- * render with the supplied vars. Returns null if the source no longer exists
- * (template was renamed / removed in the current Flint version) or if the
- * source is a non-bundled custom URL.
+ * Re-render the "current expected content" for a manifest entry.
+ *
+ *   - `pack:` sources  → delegated to the {@link PackRenderResolver} built from
+ *     the `--pack` directory (the consumer of an external template pack, e.g.
+ *     the Client Site Kit). Returns null if no resolver was supplied (no
+ *     `--pack`) or the pack no longer ships that file.
+ *   - bundled sources  → read `templates/<templateSource>` from Flint's own
+ *     bundled templates directory and render with the supplied vars.
+ *   - `git+` sources   → custom-template files; no bundled template to re-render
+ *     against, treated as unmanaged → null.
  *
  * The CURRENT Flint version is always injected as `flintVersion` (overriding
  * any persisted value) so generated-by header comments reflect the upgrading
@@ -534,7 +574,14 @@ function acceptCurrentAsBaseline(
 function renderTemplateContent(
   templateSource: string,
   vars: Record<string, string>,
+  packResolver: PackRenderResolver | null,
 ): string | null {
+  if (templateSource.startsWith('pack:')) {
+    // Pack-stamped file: only the resolver (built from --pack) can re-render it.
+    // Without a resolver, return null so the caller skips it (and the up-front
+    // warning told the user to pass --pack).
+    return packResolver ? packResolver.resolve(templateSource) : null;
+  }
   if (templateSource.startsWith('git+')) {
     // Custom-template files — there's no bundled template to re-render
     // against. Treat as unmanaged.
@@ -549,6 +596,13 @@ function renderTemplateContent(
     return renderString(raw, renderVars as TemplateVars);
   }
   return raw;
+}
+
+/** True if any manifest entry was stamped from an external template pack. */
+function manifestHasPackSources(manifest: Manifest): boolean {
+  return Object.values(manifest.files).some((e) =>
+    e.templateSource.startsWith('pack:'),
+  );
 }
 
 interface EditorMergeArgs {

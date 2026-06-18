@@ -290,6 +290,10 @@ program
     '--accept-current',
     'non-interactive: record current file contents as the new manifest baseline (no writes to project files)',
   )
+  .option(
+    '--pack <dir>',
+    'path to the template pack the project was scaffolded from — required to re-render pack-stamped files (e.g. Client-Site-Kit sites)',
+  )
   .action(
     async (opts: {
       check?: boolean;
@@ -297,6 +301,7 @@ program
       apply?: boolean;
       dryRun?: boolean;
       acceptCurrent?: boolean;
+      pack?: string;
     }) => {
       await runUpgrade({
         check: opts.check === true,
@@ -304,6 +309,7 @@ program
         apply: opts.apply === true,
         dryRun: opts.dryRun === true,
         acceptCurrent: opts.acceptCurrent === true,
+        pack: opts.pack,
         json: globalJson(),
       });
     },
